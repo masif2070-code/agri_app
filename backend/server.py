@@ -351,4 +351,6 @@ def ee_tiles(latitude: float, longitude: float, layer: str = "true_color") -> EE
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Default to 8001 for local runs to avoid frequent conflicts on 8000.
+    port = int(os.getenv("BACKEND_PORT", "8001"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
