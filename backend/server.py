@@ -88,11 +88,20 @@ def _ee_initialize_if_possible() -> bool:
     return ok
 
 
+def _ee_project_id_from_env() -> str | None:
+    # Support common cloud env var names to avoid deployment-specific mismatches.
+    return (
+        os.getenv("EE_PROJECT_ID")
+        or os.getenv("GOOGLE_CLOUD_PROJECT")
+        or os.getenv("GCLOUD_PROJECT")
+    )
+
+
 def _ee_initialize_with_env() -> tuple[bool, str | None]:
     if ee is None:
         return False, "Earth Engine Python package is unavailable in the backend."
 
-    project_id = os.getenv("EE_PROJECT_ID")
+    project_id = _ee_project_id_from_env()
     service_account = os.getenv("EE_SERVICE_ACCOUNT")
     private_key = os.getenv("EE_PRIVATE_KEY")
 
@@ -119,9 +128,12 @@ def _earth_engine_diagnostic() -> tuple[bool, str | None]:
     if ee is None:
         return False, "Earth Engine Python package is unavailable in the backend."
 
-    project_id = os.getenv("EE_PROJECT_ID")
+    project_id = _ee_project_id_from_env()
     if not project_id:
-        return False, "Earth Engine is authenticated, but EE_PROJECT_ID is not set in the backend environment."
+        return (
+            False,
+            "Earth Engine is authenticated, but project id is missing. Set EE_PROJECT_ID (or GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT).",
+        )
 
     return _ee_initialize_with_env()
 
