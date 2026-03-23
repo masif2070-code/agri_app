@@ -10,6 +10,9 @@ const String backendBaseUrl = String.fromEnvironment(
   defaultValue: 'https://agri-app-backend-6kyx.onrender.com',
 );
 
+const double defaultPunjabLat = 31.1704;
+const double defaultPunjabLon = 72.7097;
+
 void main() {
   runApp(const AgriApp());
 }
@@ -20,7 +23,7 @@ class AgriApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Farmer Instructions - Sahiwal Region',
+      title: 'Farmer Instructions - Punjab, Pakistan',
       theme: ThemeData(
         primarySwatch: Colors.green,
         colorScheme: ColorScheme.fromSwatch(
@@ -103,8 +106,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String _selectedLanguage = 'English';
   List<LatLng> _fieldPolygon = [];
 
-  final latController = TextEditingController(text: '30.6667');
-  final lonController = TextEditingController(text: '73.1060');
+  final latController = TextEditingController(text: defaultPunjabLat.toString());
+  final lonController = TextEditingController(text: defaultPunjabLon.toString());
 
   Uri _backendUri(String path, [Map<String, String>? queryParameters]) {
     final base = Uri.parse(backendBaseUrl);
@@ -117,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   LatLng _polygonCentroid(List<LatLng> points) {
     if (points.isEmpty) {
-      return const LatLng(30.6667, 73.1060);
+      return const LatLng(defaultPunjabLat, defaultPunjabLon);
     }
     final lat = points.map((p) => p.latitude).reduce((a, b) => a + b) / points.length;
     final lon = points.map((p) => p.longitude).reduce((a, b) => a + b) / points.length;
@@ -125,8 +128,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openMapPicker() async {
-    final currentLat = double.tryParse(latController.text) ?? 30.6667;
-    final currentLon = double.tryParse(lonController.text) ?? 73.1060;
+    final currentLat = double.tryParse(latController.text) ?? defaultPunjabLat;
+    final currentLon = double.tryParse(lonController.text) ?? defaultPunjabLon;
     LatLng pickedPoint = LatLng(currentLat, currentLon);
     var drawBoundaryMode = false;
     var selectedLayer = 'osm';
