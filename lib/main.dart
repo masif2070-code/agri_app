@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
@@ -144,6 +145,42 @@ class _HomeScreenState extends State<HomeScreen> {
       default:
         return 0.95;
     }
+  }
+
+  double _estimateDailyEt0Hargreaves(
+    double latitude,
+    DateTime day,
+    double temperatureMax,
+    double temperatureMin,
+  ) {
+    final dayOfYear = day.difference(DateTime(day.year, 1, 1)).inDays + 1;
+    final latitudeRadians = latitude * math.pi / 180;
+    final inverseRelativeDistance =
+        1 + 0.033 * math.cos((2 * math.pi / 365) * dayOfYear);
+    final solarDeclination =
+        0.409 * math.sin((2 * math.pi / 365) * dayOfYear - 1.39);
+    final acosInput =
+      (-math.tan(latitudeRadians) * math.tan(solarDeclination)).clamp(-1.0, 1.0);
+    final sunsetHourAngle = math.acos(
+      acosInput,
+    );
+    final extraterrestrialRadiation =
+        (24 * 60 / math.pi) *
+        0.0820 *
+        inverseRelativeDistance *
+        (sunsetHourAngle * math.sin(latitudeRadians) * math.sin(solarDeclination) +
+            math.cos(latitudeRadians) *
+                math.cos(solarDeclination) *
+                math.sin(sunsetHourAngle));
+    final temperatureMean = (temperatureMax + temperatureMin) / 2;
+    final temperatureRange = math.max(temperatureMax - temperatureMin, 0.0);
+    return math.max(
+      0.0,
+      0.0023 *
+          extraterrestrialRadiation *
+          (temperatureMean + 17.8) *
+          math.sqrt(temperatureRange),
+    );
   }
 
   Future<void> _openMapPicker() async {
@@ -537,10 +574,31 @@ class _HomeScreenState extends State<HomeScreen> {
       final precip = (daily['precipitation_sum'] as List<dynamic>)
           .map((e) => (e as num).toDouble())
           .toList();
-      final et0 = (daily['et0_fao_evapotranspiration'] as List<dynamic>?)
+      final tempMax = (daily['temperature_2m_max'] as List<dynamic>)
+          .map((e) => (e as num).toDouble())
+          .toList();
+      final tempMin = (daily['temperature_2m_min'] as List<dynamic>)
+          .map((e) => (e as num).toDouble())
+          .toList();
+      final rawEt0 = (daily['et0_fao_evapotranspiration'] as List<dynamic>?)
               ?.map((e) => (e as num).toDouble())
               .toList() ??
           <double>[];
+      final et0 = List<double>.generate(dates.length, (index) {
+        final apiEt0 = index < rawEt0.length ? rawEt0[index] : 0.0;
+        if (apiEt0 > 0) {
+          return apiEt0;
+        }
+        if (index >= tempMax.length || index >= tempMin.length) {
+          return 0.0;
+        }
+        return _estimateDailyEt0Hargreaves(
+          latitude,
+          DateTime.parse(dates[index]),
+          tempMax[index],
+          tempMin[index],
+        );
+      });
 
       final total7 = precip.take(7).fold<double>(0, (a, b) => a + b);
       final et0Total7 = et0.take(7).fold<double>(0, (a, b) => a + b);

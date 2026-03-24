@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from datetime import date, timedelta
 from typing import Any
@@ -86,11 +87,43 @@ def _fetch_precipitation_7day(latitude: float, longitude: float) -> float:
         return 0.0
 
 
+def _estimate_daily_et0_hargreaves(
+    latitude: float,
+    day_value: date,
+    temperature_max: float,
+    temperature_min: float,
+) -> float:
+    day_of_year = day_value.timetuple().tm_yday
+    latitude_radians = math.radians(latitude)
+    inverse_relative_distance = 1 + 0.033 * math.cos((2 * math.pi / 365) * day_of_year)
+    solar_declination = 0.409 * math.sin((2 * math.pi / 365) * day_of_year - 1.39)
+    sunset_hour_angle = math.acos(
+        max(-1.0, min(1.0, -math.tan(latitude_radians) * math.tan(solar_declination)))
+    )
+    extraterrestrial_radiation = (
+        (24 * 60 / math.pi)
+        * 0.0820
+        * inverse_relative_distance
+        * (
+            sunset_hour_angle * math.sin(latitude_radians) * math.sin(solar_declination)
+            + math.cos(latitude_radians)
+            * math.cos(solar_declination)
+            * math.sin(sunset_hour_angle)
+        )
+    )
+    temperature_mean = (temperature_max + temperature_min) / 2
+    temperature_range = max(temperature_max - temperature_min, 0.0)
+    return max(
+        0.0,
+        0.0023 * extraterrestrial_radiation * (temperature_mean + 17.8) * math.sqrt(temperature_range),
+    )
+
+
 def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, float]:
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={latitude}&longitude={longitude}"
-        "&daily=precipitation_sum,et0_fao_evapotranspiration"
+        "&daily=time,precipitation_sum,et0_fao_evapotranspiration,temperature_2m_max,temperature_2m_min"
         "&timezone=Asia%2FKarachi"
     )
     try:
@@ -100,8 +133,32 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
         daily = data.get("daily", {})
         precipitation = daily.get("precipitation_sum", [])
         et0_values = daily.get("et0_fao_evapotranspiration", [])
+        daily_dates = daily.get("time", [])
+        temperature_max_values = daily.get("temperature_2m_max", [])
+        temperature_min_values = daily.get("temperature_2m_min", [])
+
+        resolved_et0_values: list[float] = []
+        for index, raw_et0 in enumerate(et0_values[:7]):
+            et0_value = float(raw_et0 or 0.0)
+            if et0_value > 0:
+                resolved_et0_values.append(et0_value)
+                continue
+
+            if index >= len(daily_dates) or index >= len(temperature_max_values) or index >= len(temperature_min_values):
+                resolved_et0_values.append(0.0)
+                continue
+
+            resolved_et0_values.append(
+                _estimate_daily_et0_hargreaves(
+                    latitude,
+                    date.fromisoformat(daily_dates[index]),
+                    float(temperature_max_values[index]),
+                    float(temperature_min_values[index]),
+                )
+            )
+
         precipitation_7day = float(sum(precipitation[:7]))
-        et0_7day = float(sum(et0_values[:7]))
+        et0_7day = float(sum(resolved_et0_values[:7]))
         return precipitation_7day, et0_7day
     except Exception:
         return _fetch_precipitation_7day(latitude, longitude), 0.0
