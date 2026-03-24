@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from datetime import date, timedelta
 from typing import Any
 
@@ -65,6 +66,12 @@ class EETilesResponse(BaseModel):
 # Cache tile URL templates for nearby points to reduce repeated EE map-id calls.
 _EE_TILE_CACHE: dict[str, tuple[date, str]] = {}
 _EE_TILE_CACHE_TTL_DAYS = 1
+_WEATHER_SUMMARY_CACHE: dict[str, tuple[date, float, float]] = {}
+
+
+def _weather_cache_key(latitude: float, longitude: float) -> str:
+    # ~100m precision is enough for weather reuse and reduces upstream calls.
+    return f"{round(latitude, 3)}:{round(longitude, 3)}"
 
 
 def _tile_cache_key(latitude: float, longitude: float, layer: str) -> str:
@@ -121,6 +128,13 @@ def _estimate_daily_et0_hargreaves(
 
 
 def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, float, str | None]:
+    cache_key = _weather_cache_key(latitude, longitude)
+    cached = _WEATHER_SUMMARY_CACHE.get(cache_key)
+    if cached is not None:
+        cached_on, cached_precip, cached_et0 = cached
+        if cached_on == date.today():
+            return cached_precip, cached_et0, None
+
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={latitude}&longitude={longitude}"
@@ -128,7 +142,15 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
         "&timezone=Asia%2FKarachi"
     )
     try:
-        response = requests.get(url, timeout=10)
+        response = None
+        for attempt in range(3):
+            response = requests.get(url, timeout=10)
+            if response.status_code != 429:
+                break
+            if attempt < 2:
+                time.sleep(1.0 * (attempt + 1))
+
+        assert response is not None
         response.raise_for_status()
         data = response.json()
         daily = data.get("daily", {})
@@ -163,8 +185,16 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
 
         precipitation_7day = float(sum(precipitation[:7]))
         et0_7day = float(sum(resolved_et0_values[:7]))
+        _WEATHER_SUMMARY_CACHE[cache_key] = (date.today(), precipitation_7day, et0_7day)
         return precipitation_7day, et0_7day, None
     except Exception as exc:
+        if cached is not None:
+            cached_on, cached_precip, cached_et0 = cached
+            return (
+                cached_precip,
+                cached_et0,
+                f"Using cached weather from {cached_on.isoformat()} due to upstream error: {exc}",
+            )
         return _fetch_precipitation_7day(latitude, longitude), 0.0, str(exc)
 
 
