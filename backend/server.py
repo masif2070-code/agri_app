@@ -138,14 +138,17 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
         temperature_min_values = daily.get("temperature_2m_min", [])
 
         resolved_et0_values: list[float] = []
-        for index, raw_et0 in enumerate(et0_values[:7]):
+        forecast_days = min(
+            7,
+            len(daily_dates),
+            len(temperature_max_values),
+            len(temperature_min_values),
+        )
+        for index in range(forecast_days):
+            raw_et0 = et0_values[index] if index < len(et0_values) else 0.0
             et0_value = float(raw_et0 or 0.0)
             if et0_value > 0:
                 resolved_et0_values.append(et0_value)
-                continue
-
-            if index >= len(daily_dates) or index >= len(temperature_max_values) or index >= len(temperature_min_values):
-                resolved_et0_values.append(0.0)
                 continue
 
             resolved_et0_values.append(
