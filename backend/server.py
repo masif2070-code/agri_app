@@ -54,6 +54,7 @@ class AnalyzeResponse(BaseModel):
     recommendation: str
     earth_engine_ready: bool
     diagnostic: str | None = None
+    weather_diagnostic: str | None = None
 
 
 class EETilesResponse(BaseModel):
@@ -119,7 +120,7 @@ def _estimate_daily_et0_hargreaves(
     )
 
 
-def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, float]:
+def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, float, str | None]:
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={latitude}&longitude={longitude}"
@@ -162,9 +163,9 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
 
         precipitation_7day = float(sum(precipitation[:7]))
         et0_7day = float(sum(resolved_et0_values[:7]))
-        return precipitation_7day, et0_7day
-    except Exception:
-        return _fetch_precipitation_7day(latitude, longitude), 0.0
+        return precipitation_7day, et0_7day, None
+    except Exception as exc:
+        return _fetch_precipitation_7day(latitude, longitude), 0.0, str(exc)
 
 
 def _ee_initialize_if_possible() -> bool:
@@ -443,7 +444,7 @@ def analyze_field(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     earth_engine_ready, diagnostic = _earth_engine_diagnostic()
     ndvi = _compute_ndvi_mean(latitude, longitude, polygon) if earth_engine_ready else None
-    precipitation_7day, reference_et0_7day = _fetch_weather_summary(latitude, longitude)
+    precipitation_7day, reference_et0_7day, weather_diagnostic = _fetch_weather_summary(latitude, longitude)
     detected_crop, confidence = _detect_crop_from_ndvi(ndvi)
     preferred_crop = payload.selected_crop or detected_crop
     estimated_crop_water_need_7day = _estimated_crop_water_need_7day(
@@ -474,6 +475,7 @@ def analyze_field(payload: AnalyzeRequest) -> AnalyzeResponse:
         recommendation=advice,
         earth_engine_ready=earth_engine_ready,
         diagnostic=diagnostic,
+        weather_diagnostic=weather_diagnostic,
     )
 
 
