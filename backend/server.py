@@ -123,7 +123,7 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={latitude}&longitude={longitude}"
-        "&daily=time,precipitation_sum,et0_fao_evapotranspiration,temperature_2m_max,temperature_2m_min"
+        "&daily=precipitation_sum,et0_fao_evapotranspiration,temperature_2m_max,temperature_2m_min"
         "&timezone=Asia%2FKarachi"
     )
     try:
