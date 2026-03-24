@@ -127,6 +127,43 @@ def _estimate_daily_et0_hargreaves(
     )
 
 
+def _climate_fallback_weather(latitude: float) -> tuple[float, float]:
+    today = date.today()
+    day_of_year = today.timetuple().tm_yday
+
+    # Seasonal mean/range approximation tuned for Punjab-like subtropical climate.
+    seasonal_temperature_mean = 23.0 + 9.0 * math.sin((2 * math.pi / 365) * (day_of_year - 170))
+    seasonal_temperature_range = 11.0 + 1.5 * math.cos((2 * math.pi / 365) * (day_of_year - 200))
+
+    et0_7day = 0.0
+    for offset in range(7):
+        d = today + timedelta(days=offset)
+        et0_7day += _estimate_daily_et0_hargreaves(
+            latitude,
+            d,
+            seasonal_temperature_mean + seasonal_temperature_range / 2,
+            seasonal_temperature_mean - seasonal_temperature_range / 2,
+        )
+
+    # Very simple monthly rainfall climatology fallback (mm/day) for Punjab region.
+    monthly_mm_per_day = {
+        1: 0.8,
+        2: 1.0,
+        3: 1.4,
+        4: 1.2,
+        5: 0.7,
+        6: 1.0,
+        7: 3.8,
+        8: 4.0,
+        9: 2.1,
+        10: 0.6,
+        11: 0.4,
+        12: 0.6,
+    }
+    precipitation_7day = 7.0 * monthly_mm_per_day.get(today.month, 1.0)
+    return precipitation_7day, et0_7day
+
+
 def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, float, str | None]:
     cache_key = _weather_cache_key(latitude, longitude)
     cached = _WEATHER_SUMMARY_CACHE.get(cache_key)
@@ -195,7 +232,13 @@ def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, fl
                 cached_et0,
                 f"Using cached weather from {cached_on.isoformat()} due to upstream error: {exc}",
             )
-        return _fetch_precipitation_7day(latitude, longitude), 0.0, str(exc)
+
+        fallback_precip, fallback_et0 = _climate_fallback_weather(latitude)
+        return (
+            fallback_precip,
+            fallback_et0,
+            f"Using climate fallback due to upstream error: {exc}",
+        )
 
 
 def _ee_initialize_if_possible() -> bool:
