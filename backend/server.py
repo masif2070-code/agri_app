@@ -46,6 +46,9 @@ class AnalyzeResponse(BaseModel):
     confidence: float
     ndvi: float | None
     precipitation_7day_mm: float
+    reference_et0_7day_mm: float
+    estimated_crop_water_need_7day_mm: float
+    net_water_balance_7day_mm: float
     field_condition: str
     recommendation: str
     earth_engine_ready: bool
@@ -81,6 +84,27 @@ def _fetch_precipitation_7day(latitude: float, longitude: float) -> float:
         return float(sum(precipitation[:7]))
     except Exception:
         return 0.0
+
+
+def _fetch_weather_summary(latitude: float, longitude: float) -> tuple[float, float]:
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        f"?latitude={latitude}&longitude={longitude}"
+        "&daily=precipitation_sum,et0_fao_evapotranspiration"
+        "&timezone=Asia%2FKarachi"
+    )
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        daily = data.get("daily", {})
+        precipitation = daily.get("precipitation_sum", [])
+        et0_values = daily.get("et0_fao_evapotranspiration", [])
+        precipitation_7day = float(sum(precipitation[:7]))
+        et0_7day = float(sum(et0_values[:7]))
+        return precipitation_7day, et0_7day
+    except Exception:
+        return _fetch_precipitation_7day(latitude, longitude), 0.0
 
 
 def _ee_initialize_if_possible() -> bool:
@@ -278,32 +302,63 @@ def _detect_crop_from_ndvi(ndvi: float | None) -> tuple[str, float]:
     return "Bare/Low Vegetation", 0.50
 
 
-def _condition_from_signals(ndvi: float | None, precipitation_7day: float) -> str:
-    if ndvi is not None and ndvi < 0.32 and precipitation_7day < 12:
+def _crop_coefficient(crop: str) -> float:
+    coefficients = {
+        "Rice": 1.10,
+        "Maize": 1.00,
+        "Wheat": 0.90,
+        "Potato": 0.85,
+        "Bare/Low Vegetation": 0.60,
+        "Unknown": 0.95,
+    }
+    return coefficients.get(crop, 0.95)
+
+
+def _estimated_crop_water_need_7day(crop: str, reference_et0_7day: float) -> float:
+    return reference_et0_7day * _crop_coefficient(crop)
+
+
+def _condition_from_signals(
+    ndvi: float | None,
+    precipitation_7day: float,
+    net_water_balance_7day: float,
+) -> str:
+    if ndvi is not None and ndvi < 0.32 and net_water_balance_7day < -12:
         return "Water stress risk"
-    if precipitation_7day > 45:
+    if net_water_balance_7day > 20 or precipitation_7day > 45:
         return "Waterlogging risk"
-    if ndvi is not None and ndvi > 0.58:
+    if ndvi is not None and ndvi > 0.58 and net_water_balance_7day >= -8:
         return "Healthy canopy"
     return "Moderate condition"
 
 
-def _recommendation(condition: str, crop: str, precipitation_7day: float) -> str:
+def _recommendation(
+    condition: str,
+    crop: str,
+    precipitation_7day: float,
+    reference_et0_7day: float,
+    estimated_crop_water_need_7day: float,
+    net_water_balance_7day: float,
+) -> str:
     if condition == "Water stress risk":
         return (
-            f"{crop}: Increase irrigation in short intervals, prefer morning irrigation, "
-            "and inspect soil moisture before next cycle."
+            f"{crop}: Expected rainfall is {precipitation_7day:.1f} mm against about "
+            f"{estimated_crop_water_need_7day:.1f} mm crop water demand (ET0 {reference_et0_7day:.1f} mm). "
+            "Increase irrigation in short morning intervals and verify root-zone moisture before the next cycle."
         )
     if condition == "Waterlogging risk":
         return (
-            f"{crop}: Delay irrigation for 2-3 days and improve field drainage to avoid root stress."
+            f"{crop}: Rainfall is running about {net_water_balance_7day:.1f} mm above estimated demand over 7 days. "
+            "Delay irrigation for 2-3 days and improve field drainage to avoid root stress."
         )
     if condition == "Healthy canopy":
         return (
-            f"{crop}: Maintain current irrigation schedule; forecast rainfall is {precipitation_7day:.1f} mm for 7 days."
+            f"{crop}: Maintain the current schedule. Forecast rainfall is {precipitation_7day:.1f} mm and estimated crop water demand is "
+            f"{estimated_crop_water_need_7day:.1f} mm for the next 7 days."
         )
     return (
-        f"{crop}: Keep regular irrigation and monitor NDVI and rainfall for trend-based adjustments."
+        f"{crop}: Keep regular irrigation but adjust using the 7-day water balance of {net_water_balance_7day:.1f} mm "
+        f"(rainfall {precipitation_7day:.1f} mm vs ET-driven demand {estimated_crop_water_need_7day:.1f} mm)."
     )
 
 
@@ -328,18 +383,33 @@ def analyze_field(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     earth_engine_ready, diagnostic = _earth_engine_diagnostic()
     ndvi = _compute_ndvi_mean(latitude, longitude, polygon) if earth_engine_ready else None
-    precipitation_7day = _fetch_precipitation_7day(latitude, longitude)
+    precipitation_7day, reference_et0_7day = _fetch_weather_summary(latitude, longitude)
     detected_crop, confidence = _detect_crop_from_ndvi(ndvi)
     preferred_crop = payload.selected_crop or detected_crop
+    estimated_crop_water_need_7day = _estimated_crop_water_need_7day(
+        preferred_crop,
+        reference_et0_7day,
+    )
+    net_water_balance_7day = precipitation_7day - estimated_crop_water_need_7day
 
-    condition = _condition_from_signals(ndvi, precipitation_7day)
-    advice = _recommendation(condition, preferred_crop, precipitation_7day)
+    condition = _condition_from_signals(ndvi, precipitation_7day, net_water_balance_7day)
+    advice = _recommendation(
+        condition,
+        preferred_crop,
+        precipitation_7day,
+        reference_et0_7day,
+        estimated_crop_water_need_7day,
+        net_water_balance_7day,
+    )
 
     return AnalyzeResponse(
         detected_crop=detected_crop,
         confidence=confidence,
         ndvi=ndvi,
         precipitation_7day_mm=precipitation_7day,
+        reference_et0_7day_mm=reference_et0_7day,
+        estimated_crop_water_need_7day_mm=estimated_crop_water_need_7day,
+        net_water_balance_7day_mm=net_water_balance_7day,
         field_condition=condition,
         recommendation=advice,
         earth_engine_ready=earth_engine_ready,

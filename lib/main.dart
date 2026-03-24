@@ -101,6 +101,10 @@ class _HomeScreenState extends State<HomeScreen> {
   double? _windSpeed;
   List<String>? _forecastDates;
   List<double>? _forecastPrecip;
+  List<double>? _forecastEt0;
+  double? _referenceEt0Total;
+  double? _estimatedCropWaterNeedTotal;
+  double? _netWaterBalanceTotal;
   String? _irrigationAdvice;
   String _selectedCrop = 'Maize';
   String _selectedLanguage = 'English';
@@ -125,6 +129,21 @@ class _HomeScreenState extends State<HomeScreen> {
     final lat = points.map((p) => p.latitude).reduce((a, b) => a + b) / points.length;
     final lon = points.map((p) => p.longitude).reduce((a, b) => a + b) / points.length;
     return LatLng(lat, lon);
+  }
+
+  double _cropCoefficient(String crop) {
+    switch (crop) {
+      case 'Rice':
+        return 1.10;
+      case 'Maize':
+        return 1.00;
+      case 'Wheat':
+        return 0.90;
+      case 'Potato':
+        return 0.85;
+      default:
+        return 0.95;
+    }
   }
 
   Future<void> _openMapPicker() async {
@@ -498,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final url = Uri.parse(
-      'https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&current_weather=true&timezone=Asia%2FKarachi',
+      'https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration&current_weather=true&timezone=Asia%2FKarachi',
     );
 
     try {
@@ -518,19 +537,23 @@ class _HomeScreenState extends State<HomeScreen> {
       final precip = (daily['precipitation_sum'] as List<dynamic>)
           .map((e) => (e as num).toDouble())
           .toList();
+      final et0 = (daily['et0_fao_evapotranspiration'] as List<dynamic>?)
+              ?.map((e) => (e as num).toDouble())
+              .toList() ??
+          <double>[];
 
       final total7 = precip.take(7).fold<double>(0, (a, b) => a + b);
-      final thresholds = _cropThresholds[_selectedCrop]!;
-      final low = thresholds['low']!;
-      final high = thresholds['high']!;
+      final et0Total7 = et0.take(7).fold<double>(0, (a, b) => a + b);
+      final estimatedCropWaterNeed = et0Total7 * _cropCoefficient(_selectedCrop);
+      final netWaterBalance = total7 - estimatedCropWaterNeed;
       String advice;
 
-      if (total7 > high) {
-        advice = '${_t('highRainfallFor')} $_selectedCrop (${_t('total')} ${total7.toStringAsFixed(1)} mm). ${_t('reduceIrrigationAdvice')}';
-      } else if (total7 < low) {
-        advice = '${_t('lowRainfallFor')} $_selectedCrop (${_t('total')} ${total7.toStringAsFixed(1)} mm). ${_t('increaseIrrigationAdvice')}';
+      if (netWaterBalance > 12) {
+        advice = '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('reduceIrrigationEtAdvice')}';
+      } else if (netWaterBalance < -12) {
+        advice = '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('increaseIrrigationEtAdvice')}';
       } else {
-        advice = '${_t('moderateRainfallFor')} $_selectedCrop (${_t('total')} ${total7.toStringAsFixed(1)} mm). ${_t('standardIrrigationAdvice')}';
+        advice = '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('balancedIrrigationEtAdvice')}';
       }
 
       setState(() {
@@ -538,6 +561,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _windSpeed = (currentWeather['windspeed'] as num).toDouble();
         _forecastDates = dates.take(7).toList();
         _forecastPrecip = precip.take(7).toList();
+        _forecastEt0 = et0.take(7).toList();
+        _referenceEt0Total = et0Total7;
+        _estimatedCropWaterNeedTotal = estimatedCropWaterNeed;
+        _netWaterBalanceTotal = netWaterBalance;
         _irrigationAdvice = advice;
         _loadingWeather = false;
       });
@@ -714,6 +741,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   '${_t('irrigationThresholdsFor')} $_selectedCrop: ${_t('low')} ${_cropThresholds[_selectedCrop]!['low']} mm, ${_t('high')} ${_cropThresholds[_selectedCrop]!['high']} mm'),
               const SizedBox(height: 6),
             ],
+            if (_referenceEt0Total != null) ...[
+              Text('${_t('referenceEt0')}: ${_referenceEt0Total!.toStringAsFixed(1)} mm'),
+            ],
+            if (_estimatedCropWaterNeedTotal != null) ...[
+              Text('${_t('cropWaterNeed')}: ${_estimatedCropWaterNeedTotal!.toStringAsFixed(1)} mm'),
+            ],
+            if (_netWaterBalanceTotal != null) ...[
+              Text('${_t('waterBalance')}: ${_netWaterBalanceTotal!.toStringAsFixed(1)} mm'),
+              const SizedBox(height: 6),
+            ],
             if (_forecastDates != null && _forecastPrecip != null) ...[
               Text(
                 _t('sevenDayForecast'),
@@ -725,6 +762,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   children: List.generate(_forecastDates!.length, (i) {
                     final precip = _forecastPrecip![i];
+                    final et0 = _forecastEt0 != null && i < _forecastEt0!.length
+                      ? _forecastEt0![i]
+                      : 0.0;
                     final date = _forecastDates![i];
                     Color bgColor;
                     IconData weatherIcon;
@@ -765,6 +805,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           Text(
                             '${precip.toStringAsFixed(1)} mm',
                             style: const TextStyle(fontSize: 8.5),
+                          ),
+                          Text(
+                            'ET ${et0.toStringAsFixed(1)}',
+                            style: const TextStyle(fontSize: 8),
                           ),
                           Text(
                             condition,
@@ -919,6 +963,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final recommendation = _gisResult!['recommendation'];
     final earthEngineReady = _gisResult!['earth_engine_ready'] == true;
     final diagnostic = _gisResult!['diagnostic'];
+    final precipitation7day = _gisResult!['precipitation_7day_mm'];
+    final referenceEt07day = _gisResult!['reference_et0_7day_mm'];
+    final cropWaterNeed7day = _gisResult!['estimated_crop_water_need_7day_mm'];
+    final waterBalance7day = _gisResult!['net_water_balance_7day_mm'];
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -964,6 +1012,14 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('${_t('detectedCrop')}: $detectedCrop'),
             Text('${_t('confidence')}: ${(confidence as num).toStringAsFixed(2)}'),
             if (ndvi != null) Text('NDVI: ${(ndvi as num).toStringAsFixed(3)}'),
+            if (precipitation7day != null)
+              Text('7d Rainfall: ${(precipitation7day as num).toStringAsFixed(1)} mm'),
+            if (referenceEt07day != null)
+              Text('${_t('referenceEt0')}: ${(referenceEt07day as num).toStringAsFixed(1)} mm'),
+            if (cropWaterNeed7day != null)
+              Text('${_t('cropWaterNeed')}: ${(cropWaterNeed7day as num).toStringAsFixed(1)} mm'),
+            if (waterBalance7day != null)
+              Text('${_t('waterBalance')}: ${(waterBalance7day as num).toStringAsFixed(1)} mm'),
             Text('${_t('condition')}: $fieldCondition'),
             const SizedBox(height: 4),
             Text(recommendation.toString()),
@@ -1210,6 +1266,12 @@ const Map<String, Map<String, String>> uiTextByLanguage = {
     'cloudy': 'Cloudy',
     'sunny': 'Sunny',
     'irrigationRecommendation': 'Irrigation recommendation:',
+    'referenceEt0': 'Reference ET0 (7d)',
+    'cropWaterNeed': 'Estimated crop water need (7d)',
+    'waterBalance': 'Net water balance (7d)',
+    'reduceIrrigationEtAdvice': 'Forecast rainfall is above estimated crop demand. Reduce irrigation and avoid waterlogging.',
+    'increaseIrrigationEtAdvice': 'Forecast rainfall is below estimated crop demand. Increase irrigation in smaller, timely applications.',
+    'balancedIrrigationEtAdvice': 'Forecast rainfall is close to estimated crop demand. Keep moderate irrigation and confirm soil moisture.',
     'refreshWeather': 'Refresh weather',
     'rainyWeekAhead': 'Rainy week ahead',
     'cloudyConditions': 'Cloudy conditions',
@@ -1271,6 +1333,12 @@ const Map<String, Map<String, String>> uiTextByLanguage = {
     'cloudy': 'ابر آلود',
     'sunny': 'دھوپ',
     'irrigationRecommendation': 'آبپاشی کی سفارش:',
+    'referenceEt0': 'ریفرنس ای ٹی0 (7 دن)',
+    'cropWaterNeed': 'اندازہ شدہ فصلی پانی کی ضرورت (7 دن)',
+    'waterBalance': 'خالص پانی توازن (7 دن)',
+    'reduceIrrigationEtAdvice': 'متوقع بارش فصل کی اندازہ شدہ ضرورت سے زیادہ ہے۔ آبپاشی کم کریں اور پانی کھڑا ہونے سے بچیں۔',
+    'increaseIrrigationEtAdvice': 'متوقع بارش فصل کی اندازہ شدہ ضرورت سے کم ہے۔ آبپاشی چھوٹے مگر بروقت وقفوں میں بڑھائیں۔',
+    'balancedIrrigationEtAdvice': 'متوقع بارش فصل کی اندازہ شدہ ضرورت کے قریب ہے۔ معتدل آبپاشی رکھیں اور مٹی کی نمی چیک کریں۔',
     'refreshWeather': 'موسم تازہ کریں',
     'rainyWeekAhead': 'آگے بارش والا ہفتہ',
     'cloudyConditions': 'ابر آلود حالات',
@@ -1332,6 +1400,12 @@ const Map<String, Map<String, String>> uiTextByLanguage = {
     'cloudy': 'ابر آلود',
     'sunny': 'دھوپ',
     'irrigationRecommendation': 'آبپاشی دی سفارش:',
+    'referenceEt0': 'ریفرنس ای ٹی0 (7 دن)',
+    'cropWaterNeed': 'اندازہ شدہ فصلی پانی دی لوڑ (7 دن)',
+    'waterBalance': 'نیٹ پانی توازن (7 دن)',
+    'reduceIrrigationEtAdvice': 'متوقع بارش فصل دی اندازہ شدہ لوڑ توں ودھ اے۔ آبپاشی گھٹاؤ تے پانی کھلوتا نہ رہن دو۔',
+    'increaseIrrigationEtAdvice': 'متوقع بارش فصل دی اندازہ شدہ لوڑ توں گھٹ اے۔ آبپاشی چھوٹے مگر بروقت وقفیاں وچ ودھاؤ۔',
+    'balancedIrrigationEtAdvice': 'متوقع بارش فصل دی اندازہ شدہ لوڑ دے قریب اے۔ معتدل آبپاشی رکھو تے مٹی دی نمی چیک کرو۔',
     'refreshWeather': 'موسم تازہ کرو',
     'rainyWeekAhead': 'اگلا ہفتہ بارش والا',
     'cloudyConditions': 'ابر آلود حالات',
