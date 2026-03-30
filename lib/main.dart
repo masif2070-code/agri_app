@@ -109,10 +109,12 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _irrigationAdvice;
   String _selectedCrop = 'Maize';
   String _selectedLanguage = 'English';
+  String _selectedWheatGrowthStage = 'crown_root_initiation';
   List<LatLng> _fieldPolygon = [];
 
   final latController = TextEditingController(text: defaultPunjabLat.toString());
   final lonController = TextEditingController(text: defaultPunjabLon.toString());
+  final previousIrrigationsController = TextEditingController(text: '0');
 
   Uri _backendUri(String path, [Map<String, String>? queryParameters]) {
     final base = Uri.parse(backendBaseUrl);
@@ -145,6 +147,127 @@ class _HomeScreenState extends State<HomeScreen> {
       default:
         return 0.95;
     }
+  }
+
+  int _previousIrrigationsCount() {
+    final parsed = int.tryParse(previousIrrigationsController.text.trim()) ?? 0;
+    return parsed.clamp(0, 12);
+  }
+
+  static const List<Map<String, dynamic>> _wheatStageSequence = [
+    {
+      'key': 'pre_sowing',
+      'labelKey': 'wheatStagePreSowing',
+      'irrigationNumber': 0,
+    },
+    {
+      'key': 'crown_root_initiation',
+      'labelKey': 'wheatStageCri',
+      'irrigationNumber': 1,
+    },
+    {
+      'key': 'tillering',
+      'labelKey': 'wheatStageTillering',
+      'irrigationNumber': 2,
+    },
+    {
+      'key': 'jointing',
+      'labelKey': 'wheatStageJointing',
+      'irrigationNumber': 3,
+    },
+    {
+      'key': 'grain_filling',
+      'labelKey': 'wheatStageGrainFilling',
+      'irrigationNumber': 4,
+    },
+  ];
+
+  Map<String, dynamic> _wheatStageDetails([String? stageKey]) {
+    final key = stageKey ?? _selectedWheatGrowthStage;
+    return _wheatStageSequence.firstWhere(
+      (stage) => stage['key'] == key,
+      orElse: () => _wheatStageSequence[1],
+    );
+  }
+
+  String _wheatStageLabel([String? stageKey]) {
+    final stage = _wheatStageDetails(stageKey);
+    return _t(stage['labelKey'] as String);
+  }
+
+  String _buildWheatRecommendation(
+    double precipitation7day,
+    double referenceEt07day,
+    double estimatedCropWaterNeed,
+    double netWaterBalance,
+  ) {
+    final stage = _wheatStageDetails();
+    final previousIrrigations = _previousIrrigationsCount();
+    final targetIrrigationNumber = stage['irrigationNumber'] as int;
+    final stageLabel = _t(stage['labelKey'] as String);
+    final stageIndex = _wheatStageSequence.indexWhere(
+      (item) => item['key'] == stage['key'],
+    );
+    final nextStageLabel = stageIndex >= 0 && stageIndex + 1 < _wheatStageSequence.length
+        ? _t(_wheatStageSequence[stageIndex + 1]['labelKey'] as String)
+        : null;
+    final balanceText =
+        '${_t('wheatDemandContext')} ${precipitation7day.toStringAsFixed(1)} mm ${_t('against')} ${estimatedCropWaterNeed.toStringAsFixed(1)} mm ${_t('withEt0Short')} ${referenceEt07day.toStringAsFixed(1)} mm, ${_t('leavingBalance')} ${netWaterBalance.toStringAsFixed(1)} mm.';
+
+    if (targetIrrigationNumber == 0) {
+      if (netWaterBalance <= -10) {
+        return '${_t('wheatStagePrefix')} $stageLabel. ${_t('previousIrrigationsNote')} $previousIrrigations. ${_t('wheatPresowingNow')} $balanceText';
+      }
+      return '${_t('wheatStagePrefix')} $stageLabel. ${_t('previousIrrigationsNote')} $previousIrrigations. ${_t('wheatPresowingHold')} $balanceText';
+    }
+
+    if (previousIrrigations < targetIrrigationNumber) {
+      String message;
+      if (netWaterBalance <= -12) {
+        message = '${_t('wheatIrrigationDueNow')} #$targetIrrigationNumber.';
+      } else if (netWaterBalance <= 5) {
+        message = '${_t('wheatIrrigationSoon')} #$targetIrrigationNumber.';
+      } else {
+        message = '${_t('wheatIrrigationDelay')} #$targetIrrigationNumber.';
+      }
+      final nextStageMessage = nextStageLabel == null
+          ? ''
+          : ' ${_t('wheatNextStage')} $nextStageLabel.';
+      return '${_t('wheatStagePrefix')} $stageLabel. ${_t('previousIrrigationsNote')} $previousIrrigations. $message $balanceText$nextStageMessage';
+    }
+
+    if (previousIrrigations == targetIrrigationNumber) {
+      final nextStageMessage = nextStageLabel == null
+          ? ''
+          : ' ${_t('wheatNextStagePlanned')} $nextStageLabel.';
+      return '${_t('wheatStagePrefix')} $stageLabel. ${_t('wheatStageAlreadyCovered')} $previousIrrigations. $balanceText$nextStageMessage';
+    }
+
+    return '${_t('wheatStagePrefix')} $stageLabel. ${_t('wheatTooManyIrrigations')} $previousIrrigations ${_t('wheatForStageLimit')} $targetIrrigationNumber. $balanceText';
+  }
+
+  String _buildIrrigationAdvice(
+    double precipitation7day,
+    double referenceEt07day,
+    double estimatedCropWaterNeed,
+    double netWaterBalance,
+  ) {
+    if (_selectedCrop == 'Wheat') {
+      return _buildWheatRecommendation(
+        precipitation7day,
+        referenceEt07day,
+        estimatedCropWaterNeed,
+        netWaterBalance,
+      );
+    }
+
+    if (netWaterBalance > 12) {
+      return '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('reduceIrrigationEtAdvice')}';
+    }
+    if (netWaterBalance < -12) {
+      return '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('increaseIrrigationEtAdvice')}';
+    }
+    return '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('balancedIrrigationEtAdvice')}';
   }
 
   double _estimateDailyEt0Hargreaves(
@@ -535,6 +658,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchWeather();
   }
 
+  @override
+  void dispose() {
+    latController.dispose();
+    lonController.dispose();
+    previousIrrigationsController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchWeather() async {
     setState(() {
       _loadingWeather = true;
@@ -604,15 +735,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final et0Total7 = et0.take(7).fold<double>(0, (a, b) => a + b);
       final estimatedCropWaterNeed = et0Total7 * _cropCoefficient(_selectedCrop);
       final netWaterBalance = total7 - estimatedCropWaterNeed;
-      String advice;
-
-      if (netWaterBalance > 12) {
-        advice = '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('reduceIrrigationEtAdvice')}';
-      } else if (netWaterBalance < -12) {
-        advice = '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('increaseIrrigationEtAdvice')}';
-      } else {
-        advice = '${_t('waterBalance')}: ${netWaterBalance.toStringAsFixed(1)} mm. ${_t('balancedIrrigationEtAdvice')}';
-      }
+      final advice = _buildIrrigationAdvice(
+        total7,
+        et0Total7,
+        estimatedCropWaterNeed,
+        netWaterBalance,
+      );
 
       setState(() {
         _temperature = (currentWeather['temperature'] as num).toDouble();
@@ -684,6 +812,8 @@ class _HomeScreenState extends State<HomeScreen> {
           'latitude': latitude,
           'longitude': longitude,
           'selected_crop': _selectedCrop,
+          'growth_stage': _selectedCrop == 'Wheat' ? _selectedWheatGrowthStage : null,
+          'previous_irrigations_count': _selectedCrop == 'Wheat' ? _previousIrrigationsCount() : null,
           'polygon': _fieldPolygon
               .map((p) => [p.latitude, p.longitude])
               .toList(),
@@ -785,14 +915,81 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (value != null) {
                   setState(() {
                     _selectedCrop = value;
-                    // Re-evaluate recommendations once crop changes
-                    if (_forecastPrecip != null) {
-                      _fetchWeather();
-                    }
                   });
+                  if (_forecastPrecip != null) {
+                    _fetchWeather();
+                  }
                 }
               },
             ),
+            if (_selectedCrop == 'Wheat') ...[
+              const SizedBox(height: 8),
+              Text(
+                _t('wheatGrowthStage'),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              DropdownButton<String>(
+                value: _selectedWheatGrowthStage,
+                isDense: true,
+                items: _wheatStageSequence
+                    .map(
+                      (stage) => DropdownMenuItem<String>(
+                        value: stage['key'] as String,
+                        child: Text(_t(stage['labelKey'] as String)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() {
+                    _selectedWheatGrowthStage = value;
+                  });
+                  if (_forecastPrecip != null && _referenceEt0Total != null && _estimatedCropWaterNeedTotal != null && _netWaterBalanceTotal != null) {
+                    setState(() {
+                      _irrigationAdvice = _buildIrrigationAdvice(
+                        _forecastPrecip!.take(7).fold<double>(0, (a, b) => a + b),
+                        _referenceEt0Total!,
+                        _estimatedCropWaterNeedTotal!,
+                        _netWaterBalanceTotal!,
+                      );
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _t('previousIrrigationsCount'),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              TextField(
+                controller: previousIrrigationsController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  hintText: _t('previousIrrigationsHint'),
+                ),
+                onChanged: (_) {
+                  if (_forecastPrecip != null && _referenceEt0Total != null && _estimatedCropWaterNeedTotal != null && _netWaterBalanceTotal != null) {
+                    setState(() {
+                      _irrigationAdvice = _buildIrrigationAdvice(
+                        _forecastPrecip!.take(7).fold<double>(0, (a, b) => a + b),
+                        _referenceEt0Total!,
+                        _estimatedCropWaterNeedTotal!,
+                        _netWaterBalanceTotal!,
+                      );
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_t('wheatStageSchedule')}: ${_wheatStageLabel(_selectedWheatGrowthStage)} -> #${(_wheatStageDetails()['irrigationNumber'] as int)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 4),
             if (_cropThresholds[_selectedCrop] != null) ...[
               Text(
@@ -1330,6 +1527,31 @@ const Map<String, Map<String, String>> uiTextByLanguage = {
     'reduceIrrigationEtAdvice': 'Forecast rainfall is above estimated crop demand. Reduce irrigation and avoid waterlogging.',
     'increaseIrrigationEtAdvice': 'Forecast rainfall is below estimated crop demand. Increase irrigation in smaller, timely applications.',
     'balancedIrrigationEtAdvice': 'Forecast rainfall is close to estimated crop demand. Keep moderate irrigation and confirm soil moisture.',
+    'wheatGrowthStage': 'Wheat growth stage',
+    'previousIrrigationsCount': 'Previous irrigations completed',
+    'previousIrrigationsHint': 'Enter irrigation count, e.g. 1',
+    'wheatStageSchedule': 'Stage irrigation number',
+    'wheatStagePreSowing': 'Pre-sowing',
+    'wheatStageCri': 'Crown root initiation',
+    'wheatStageTillering': 'Tillering',
+    'wheatStageJointing': 'Jointing / booting',
+    'wheatStageGrainFilling': 'Grain filling',
+    'wheatDemandContext': 'Forecast rainfall is',
+    'against': 'against',
+    'withEt0Short': 'with ET0',
+    'leavingBalance': 'leaving a 7-day water balance of',
+    'wheatStagePrefix': 'Wheat stage:',
+    'previousIrrigationsNote': 'Previous irrigations:',
+    'wheatPresowingNow': 'Give pre-sowing irrigation now so the seedbed is uniformly moist before planting.',
+    'wheatPresowingHold': 'Hold pre-sowing irrigation for the moment if the seedbed is already workable and reassess after the next rainfall update.',
+    'wheatIrrigationDueNow': 'Irrigation is due now at this stage. Apply irrigation',
+    'wheatIrrigationSoon': 'Irrigation should be scheduled within 1-3 days. Prepare irrigation',
+    'wheatIrrigationDelay': 'This stage normally needs irrigation, but forecast rainfall can cover part of the demand. Delay irrigation',
+    'wheatNextStage': 'Next key irrigation stage:',
+    'wheatNextStagePlanned': 'Next planned irrigation stage:',
+    'wheatStageAlreadyCovered': 'The usual irrigation count for this stage is already completed. Reported count:',
+    'wheatTooManyIrrigations': 'Reported irrigations are already above the usual count for this stage. Reported count:',
+    'wheatForStageLimit': 'usual stage limit:',
     'refreshWeather': 'Refresh weather',
     'rainyWeekAhead': 'Rainy week ahead',
     'cloudyConditions': 'Cloudy conditions',
@@ -1397,6 +1619,31 @@ const Map<String, Map<String, String>> uiTextByLanguage = {
     'reduceIrrigationEtAdvice': 'متوقع بارش فصل کی اندازہ شدہ ضرورت سے زیادہ ہے۔ آبپاشی کم کریں اور پانی کھڑا ہونے سے بچیں۔',
     'increaseIrrigationEtAdvice': 'متوقع بارش فصل کی اندازہ شدہ ضرورت سے کم ہے۔ آبپاشی چھوٹے مگر بروقت وقفوں میں بڑھائیں۔',
     'balancedIrrigationEtAdvice': 'متوقع بارش فصل کی اندازہ شدہ ضرورت کے قریب ہے۔ معتدل آبپاشی رکھیں اور مٹی کی نمی چیک کریں۔',
+    'wheatGrowthStage': 'گندم کا بڑھوتری مرحلہ',
+    'previousIrrigationsCount': 'پچھلی مکمل آبپاشیوں کی تعداد',
+    'previousIrrigationsHint': 'آبپاشیوں کی تعداد درج کریں، مثلاً 1',
+    'wheatStageSchedule': 'اس مرحلے کا آبپاشی نمبر',
+    'wheatStagePreSowing': 'پیش از بوائی',
+    'wheatStageCri': 'کراؤن روٹ انیشی ایشن',
+    'wheatStageTillering': 'ٹیلرنگ',
+    'wheatStageJointing': 'جوائنٹنگ / بوٹنگ',
+    'wheatStageGrainFilling': 'دانہ بھراؤ',
+    'wheatDemandContext': 'متوقع بارش',
+    'against': 'کے مقابل',
+    'withEt0Short': 'اور ای ٹی0',
+    'leavingBalance': 'کے ساتھ 7 دن کا پانی توازن',
+    'wheatStagePrefix': 'گندم کا مرحلہ:',
+    'previousIrrigationsNote': 'پچھلی آبپاشیاں:',
+    'wheatPresowingNow': 'اب پیش از بوائی آبپاشی کریں تاکہ بیج بستر یکساں طور پر نم ہو جائے۔',
+    'wheatPresowingHold': 'اگر زمین قابلِ کاشت ہے تو فی الحال پیش از بوائی آبپاشی روکیں اور اگلی بارش کی تازہ کاری کے بعد دوبارہ دیکھیں۔',
+    'wheatIrrigationDueNow': 'اس مرحلے پر آبپاشی ابھی ضروری ہے۔ آبپاشی کریں',
+    'wheatIrrigationSoon': 'آبپاشی 1 تا 3 دن میں شیڈول کریں۔ آبپاشی تیار رکھیں',
+    'wheatIrrigationDelay': 'اس مرحلے پر عموماً آبپاشی درکار ہوتی ہے مگر متوقع بارش کچھ ضرورت پوری کر سکتی ہے۔ آبپاشی موخر کریں',
+    'wheatNextStage': 'اگلا اہم آبپاشی مرحلہ:',
+    'wheatNextStagePlanned': 'اگلا منصوبہ شدہ آبپاشی مرحلہ:',
+    'wheatStageAlreadyCovered': 'اس مرحلے کے لیے معمول کی آبپاشی تعداد پہلے ہی پوری ہو چکی ہے۔ درج تعداد:',
+    'wheatTooManyIrrigations': 'درج آبپاشیاں اس مرحلے کی معمول تعداد سے زیادہ ہیں۔ درج تعداد:',
+    'wheatForStageLimit': 'اس مرحلے کی حد:',
     'refreshWeather': 'موسم تازہ کریں',
     'rainyWeekAhead': 'آگے بارش والا ہفتہ',
     'cloudyConditions': 'ابر آلود حالات',
@@ -1464,6 +1711,31 @@ const Map<String, Map<String, String>> uiTextByLanguage = {
     'reduceIrrigationEtAdvice': 'متوقع بارش فصل دی اندازہ شدہ لوڑ توں ودھ اے۔ آبپاشی گھٹاؤ تے پانی کھلوتا نہ رہن دو۔',
     'increaseIrrigationEtAdvice': 'متوقع بارش فصل دی اندازہ شدہ لوڑ توں گھٹ اے۔ آبپاشی چھوٹے مگر بروقت وقفیاں وچ ودھاؤ۔',
     'balancedIrrigationEtAdvice': 'متوقع بارش فصل دی اندازہ شدہ لوڑ دے قریب اے۔ معتدل آبپاشی رکھو تے مٹی دی نمی چیک کرو۔',
+    'wheatGrowthStage': 'کنک دی بڑھوتری دا مرحلہ',
+    'previousIrrigationsCount': 'پچھلی مکمل آبپاشیاں دی گنتی',
+    'previousIrrigationsHint': 'آبپاشیاں دی گنتی لکھو، مثلاً 1',
+    'wheatStageSchedule': 'اس مرحلے دا آبپاشی نمبر',
+    'wheatStagePreSowing': 'بوائی توں پہلاں',
+    'wheatStageCri': 'کراؤن روٹ انیشی ایشن',
+    'wheatStageTillering': 'ٹیلرنگ',
+    'wheatStageJointing': 'جوائنٹنگ / بوٹنگ',
+    'wheatStageGrainFilling': 'دانہ بھرنا',
+    'wheatDemandContext': 'متوقع بارش',
+    'against': 'دے مقابل',
+    'withEt0Short': 'اتے ای ٹی0',
+    'leavingBalance': 'نال 7 دن دا پانی توازن',
+    'wheatStagePrefix': 'کنک دا مرحلہ:',
+    'previousIrrigationsNote': 'پچھلی آبپاشیاں:',
+    'wheatPresowingNow': 'ہُن بوائی توں پہلاں آبپاشی کرو تاکہ بیج والی مٹی یکساں نم ہو جاوے۔',
+    'wheatPresowingHold': 'جے زمین پہلے ہی قابلِ کاشت اے تے فی الحال پیشگی آبپاشی روک کے اگلی بارش توں بعد دوبارہ دیکھو۔',
+    'wheatIrrigationDueNow': 'اس مرحلے تے آبپاشی ہُن ضروری اے۔ آبپاشی کرو',
+    'wheatIrrigationSoon': 'آبپاشی 1 توں 3 دن وچ شیڈول کرو۔ آبپاشی تیار رکھو',
+    'wheatIrrigationDelay': 'اس مرحلے تے عام طور تے آبپاشی چاہیدی اے پر متوقع بارش کچھ لوڑ پوری کر سکدی اے۔ آبپاشی موخر کرو',
+    'wheatNextStage': 'اگلا اہم آبپاشی مرحلہ:',
+    'wheatNextStagePlanned': 'اگلا منصوبہ بند آبپاشی مرحلہ:',
+    'wheatStageAlreadyCovered': 'اس مرحلے لئی معمول دی آبپاشی تعداد پہلے ہی پوری ہو چکی اے۔ درج گنتی:',
+    'wheatTooManyIrrigations': 'درج آبپاشیاں اس مرحلے دی معمول تعداد توں ودھ نیں۔ درج گنتی:',
+    'wheatForStageLimit': 'اس مرحلے دی حد:',
     'refreshWeather': 'موسم تازہ کرو',
     'rainyWeekAhead': 'اگلا ہفتہ بارش والا',
     'cloudyConditions': 'ابر آلود حالات',

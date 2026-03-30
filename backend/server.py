@@ -40,6 +40,8 @@ class AnalyzeRequest(BaseModel):
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
     selected_crop: str | None = None
+    growth_stage: str | None = None
+    previous_irrigations_count: int | None = Field(default=None, ge=0, le=12)
     polygon: list[list[float]] | None = None
 
 
@@ -67,6 +69,13 @@ class EETilesResponse(BaseModel):
 _EE_TILE_CACHE: dict[str, tuple[date, str]] = {}
 _EE_TILE_CACHE_TTL_DAYS = 1
 _WEATHER_SUMMARY_CACHE: dict[str, tuple[date, float, float]] = {}
+_WHEAT_STAGE_SEQUENCE: list[tuple[str, str, int]] = [
+    ("pre_sowing", "pre-sowing", 0),
+    ("crown_root_initiation", "crown root initiation", 1),
+    ("tillering", "tillering", 2),
+    ("jointing", "jointing / booting", 3),
+    ("grain_filling", "grain filling", 4),
+]
 
 
 def _weather_cache_key(latitude: float, longitude: float) -> str:
@@ -452,6 +461,99 @@ def _estimated_crop_water_need_7day(crop: str, reference_et0_7day: float) -> flo
     return reference_et0_7day * _crop_coefficient(crop)
 
 
+def _normalize_wheat_growth_stage(growth_stage: str | None) -> str:
+    if not growth_stage:
+        return "crown_root_initiation"
+
+    normalized = growth_stage.strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "cri": "crown_root_initiation",
+        "crown_root": "crown_root_initiation",
+        "crown_root_initiation": "crown_root_initiation",
+        "booting": "jointing",
+        "heading": "jointing",
+        "jointing_booting": "jointing",
+        "grain_fill": "grain_filling",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _wheat_stage_details(growth_stage: str | None) -> tuple[str, str, int, str | None]:
+    normalized = _normalize_wheat_growth_stage(growth_stage)
+    for index, (stage_key, stage_label, irrigation_number) in enumerate(_WHEAT_STAGE_SEQUENCE):
+        if stage_key == normalized:
+            next_stage = None
+            if index + 1 < len(_WHEAT_STAGE_SEQUENCE):
+                next_stage = _WHEAT_STAGE_SEQUENCE[index + 1][1]
+            return stage_key, stage_label, irrigation_number, next_stage
+    return _wheat_stage_details("crown_root_initiation")
+
+
+def _wheat_recommendation(
+    precipitation_7day: float,
+    reference_et0_7day: float,
+    estimated_crop_water_need_7day: float,
+    net_water_balance_7day: float,
+    growth_stage: str | None,
+    previous_irrigations_count: int | None,
+) -> str:
+    _, stage_label, target_irrigation_number, next_stage = _wheat_stage_details(growth_stage)
+    previous_irrigations = max(previous_irrigations_count or 0, 0)
+    balance_text = (
+        f"Forecast rainfall is {precipitation_7day:.1f} mm against about "
+        f"{estimated_crop_water_need_7day:.1f} mm demand (ET0 {reference_et0_7day:.1f} mm), "
+        f"leaving a {net_water_balance_7day:.1f} mm 7-day water balance."
+    )
+
+    if target_irrigation_number == 0:
+        if net_water_balance_7day <= -10:
+            return (
+                f"Wheat at {stage_label}: You reported {previous_irrigations} previous irrigations. "
+                f"Give a pre-sowing irrigation now so the seedbed is uniformly moist before planting. {balance_text}"
+            )
+        return (
+            f"Wheat at {stage_label}: You reported {previous_irrigations} previous irrigations. "
+            "Hold pre-sowing irrigation for the moment if the seedbed is already workable, and reassess after the next rainfall update. "
+            f"{balance_text}"
+        )
+
+    if previous_irrigations < target_irrigation_number:
+        if net_water_balance_7day <= -12:
+            advice = (
+                f"Wheat at {stage_label}: You reported {previous_irrigations} previous irrigations, so irrigation "
+                f"#{target_irrigation_number} is due now. {balance_text}"
+            )
+        elif net_water_balance_7day <= 5:
+            advice = (
+                f"Wheat at {stage_label}: You reported {previous_irrigations} previous irrigations, so irrigation "
+                f"#{target_irrigation_number} should be scheduled within 1-3 days unless the root zone is already moist. {balance_text}"
+            )
+        else:
+            advice = (
+                f"Wheat at {stage_label}: This stage normally needs irrigation #{target_irrigation_number}, but the current forecast can cover part of the demand. "
+                f"Delay for 2-3 days and recheck soil moisture before irrigating. {balance_text}"
+            )
+        if next_stage is not None:
+            advice += f" The next key irrigation after this stage is usually at {next_stage}."
+        return advice
+
+    if previous_irrigations == target_irrigation_number:
+        advice = (
+            f"Wheat at {stage_label}: You have already completed the usual irrigation count for this stage ({previous_irrigations}). "
+            "Do not repeat irrigation immediately; confirm moisture in the top 45-60 cm before applying more water. "
+            f"{balance_text}"
+        )
+        if next_stage is not None:
+            advice += f" The next planned irrigation is usually at {next_stage}."
+        return advice
+
+    return (
+        f"Wheat at {stage_label}: You reported {previous_irrigations} irrigations, which is already above the usual count for this stage "
+        f"({target_irrigation_number}). Hold irrigation for now, watch for lodging or waterlogging, and only irrigate again if the field dries below the root zone. "
+        f"{balance_text}"
+    )
+
+
 def _condition_from_signals(
     ndvi: float | None,
     precipitation_7day: float,
@@ -473,7 +575,19 @@ def _recommendation(
     reference_et0_7day: float,
     estimated_crop_water_need_7day: float,
     net_water_balance_7day: float,
+    growth_stage: str | None = None,
+    previous_irrigations_count: int | None = None,
 ) -> str:
+    if crop == "Wheat":
+        return _wheat_recommendation(
+            precipitation_7day,
+            reference_et0_7day,
+            estimated_crop_water_need_7day,
+            net_water_balance_7day,
+            growth_stage,
+            previous_irrigations_count,
+        )
+
     if condition == "Water stress risk":
         return (
             f"{crop}: Expected rainfall is {precipitation_7day:.1f} mm against about "
@@ -505,6 +619,8 @@ def health() -> dict[str, str]:
 def analyze_field(payload: AnalyzeRequest) -> AnalyzeResponse:
     if payload.selected_crop and len(payload.selected_crop.strip()) == 0:
         raise HTTPException(status_code=400, detail="selected_crop cannot be empty")
+    if payload.growth_stage and len(payload.growth_stage.strip()) == 0:
+        raise HTTPException(status_code=400, detail="growth_stage cannot be empty")
 
     polygon = _validate_polygon(payload.polygon)
     latitude = payload.latitude
@@ -534,6 +650,8 @@ def analyze_field(payload: AnalyzeRequest) -> AnalyzeResponse:
         reference_et0_7day,
         estimated_crop_water_need_7day,
         net_water_balance_7day,
+        payload.growth_stage,
+        payload.previous_irrigations_count,
     )
 
     return AnalyzeResponse(
