@@ -3,3 +3,5 @@ uvicorn[standard]==0.35.0
 pydantic==2.11.7
 requests==2.32.4
 earthengine-api==1.6.8
+python-multipart==0.0.20
+Pillow==11.3.0

@@ -3,12 +3,15 @@ from __future__ import annotations
 import math
 import os
 import time
+import uuid
+from io import BytesIO
 from datetime import date, timedelta
 from typing import Any
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image, ImageFilter, ImageStat
 from pydantic import BaseModel, Field
 
 try:
@@ -65,10 +68,42 @@ class EETilesResponse(BaseModel):
     url_template: str
 
 
+class CropPhotoRecommendationResponse(BaseModel):
+    selected_crop: str
+    concern_type: str
+    fertilizer_history: str
+    model_label: str
+    model_confidence: float
+    model_version: str
+    possible_issue: str
+    recommendation: str
+    review_case_id: str
+    review_status: str
+    review_message: str
+    confidence_note: str
+    next_steps: list[str]
+    disclaimer: str
+
+
+class CropPhotoCaseStatusResponse(BaseModel):
+    review_case_id: str
+    selected_crop: str
+    concern_type: str
+    review_status: str
+    recommendation: str
+    reviewer_notes: str
+
+
+class CropPhotoCaseReviewRequest(BaseModel):
+    recommendation: str = Field(..., min_length=10)
+    reviewer_notes: str = ""
+
+
 # Cache tile URL templates for nearby points to reduce repeated EE map-id calls.
 _EE_TILE_CACHE: dict[str, tuple[date, str]] = {}
 _EE_TILE_CACHE_TTL_DAYS = 1
 _WEATHER_SUMMARY_CACHE: dict[str, tuple[date, float, float]] = {}
+_REVIEW_CASES: dict[str, dict[str, Any]] = {}
 _WHEAT_STAGE_SEQUENCE: list[tuple[str, str, int]] = [
     ("pre_sowing", "pre-sowing", 0),
     ("crown_root_initiation", "crown root initiation", 1),
@@ -610,6 +645,248 @@ def _recommendation(
     )
 
 
+def _normalize_concern_type(concern_type: str) -> str:
+    normalized = concern_type.strip().lower().replace("-", "_").replace(" ", "_")
+    allowed = {"nutrient_deficiency", "insect_pests", "disease"}
+    if normalized in allowed:
+        return normalized
+    return "nutrient_deficiency"
+
+
+def _analyze_crop_image_signals(photo_bytes: bytes) -> dict[str, float]:
+    try:
+        image = Image.open(BytesIO(photo_bytes)).convert("RGB")
+    except Exception:
+        return {
+            "yellow_ratio": 0.0,
+            "brown_ratio": 0.0,
+            "green_ratio": 0.0,
+            "dark_spot_ratio": 0.0,
+            "edge_intensity": 0.0,
+        }
+
+    image.thumbnail((256, 256))
+    pixels = list(image.getdata())
+    if not pixels:
+        return {
+            "yellow_ratio": 0.0,
+            "brown_ratio": 0.0,
+            "green_ratio": 0.0,
+            "dark_spot_ratio": 0.0,
+            "edge_intensity": 0.0,
+        }
+
+    total = float(len(pixels))
+    yellow_count = 0
+    brown_count = 0
+    green_count = 0
+    dark_spot_count = 0
+
+    for r, g, b in pixels:
+        if r > 120 and g > 100 and b < 130 and abs(r - g) < 60:
+            yellow_count += 1
+        if r > 95 and g > 50 and b < 80 and r > g * 1.03:
+            brown_count += 1
+        if g > 60 and g > r * 1.05 and g > b * 1.05:
+            green_count += 1
+        if r < 70 and g < 70 and b < 70:
+            dark_spot_count += 1
+
+    edge_image = image.convert("L").filter(ImageFilter.FIND_EDGES)
+    edge_mean = ImageStat.Stat(edge_image).mean[0] / 255.0
+
+    return {
+        "yellow_ratio": yellow_count / total,
+        "brown_ratio": brown_count / total,
+        "green_ratio": green_count / total,
+        "dark_spot_ratio": dark_spot_count / total,
+        "edge_intensity": max(0.0, min(1.0, edge_mean)),
+    }
+
+
+def _feature_vector_from_signals(image_signals: dict[str, float]) -> tuple[float, ...]:
+    return (
+        image_signals.get("yellow_ratio", 0.0),
+        image_signals.get("brown_ratio", 0.0),
+        image_signals.get("green_ratio", 0.0),
+        image_signals.get("dark_spot_ratio", 0.0),
+        image_signals.get("edge_intensity", 0.0),
+    )
+
+
+def _predict_issue_with_model(
+    image_signals: dict[str, float],
+    concern_type: str,
+) -> tuple[str, float, str]:
+    # Lightweight prototype classifier over engineered leaf features.
+    # Model version is explicit so we can upgrade/compare in future.
+    model_version = "signal-prototype-v1"
+    concern = _normalize_concern_type(concern_type)
+    x = _feature_vector_from_signals(image_signals)
+
+    prototypes: dict[str, tuple[float, ...]] = {
+        "nitrogen_deficiency": (0.30, 0.10, 0.32, 0.06, 0.10),
+        "potassium_deficiency": (0.18, 0.24, 0.34, 0.08, 0.16),
+        "zinc_deficiency": (0.22, 0.08, 0.38, 0.06, 0.20),
+        "aphid_or_whitefly": (0.10, 0.10, 0.46, 0.16, 0.18),
+        "chewing_pest_damage": (0.08, 0.14, 0.42, 0.14, 0.34),
+        "leaf_spot_or_blight": (0.14, 0.26, 0.36, 0.22, 0.26),
+        "rust_or_mildew_pattern": (0.20, 0.16, 0.34, 0.18, 0.22),
+    }
+
+    allowed_labels = set(prototypes.keys())
+    if concern == "nutrient_deficiency":
+        allowed_labels = {"nitrogen_deficiency", "potassium_deficiency", "zinc_deficiency"}
+    elif concern == "insect_pests":
+        allowed_labels = {"aphid_or_whitefly", "chewing_pest_damage"}
+    elif concern == "disease":
+        allowed_labels = {"leaf_spot_or_blight", "rust_or_mildew_pattern"}
+
+    distances: dict[str, float] = {}
+    for label, p in prototypes.items():
+        if label not in allowed_labels:
+            continue
+        distances[label] = math.sqrt(sum((a - b) ** 2 for a, b in zip(x, p, strict=False)))
+
+    if not distances:
+        return "unknown", 0.0, model_version
+
+    best_label = min(distances, key=distances.get)
+    # Convert distance to bounded confidence. Smaller distance => higher confidence.
+    confidence = max(0.25, min(0.95, 1.0 - distances[best_label] * 1.6))
+    return best_label, confidence, model_version
+
+
+def _build_photo_recommendation(
+    selected_crop: str,
+    concern_type: str,
+    notes: str,
+    fertilizer_history: str,
+    review_case_id: str,
+    image_signals: dict[str, float],
+) -> CropPhotoRecommendationResponse:
+    concern = _normalize_concern_type(concern_type)
+    crop = selected_crop.strip() or "Unknown crop"
+    notes_lower = notes.lower()
+
+    deficiency_signals = [
+        "yellow", "chlorosis", "purple", "stunted", "pale", "burn", "spot",
+    ]
+    pest_signals = [
+        "hole", "chewed", "web", "larva", "worm", "aphid", "whitefly", "thrips",
+    ]
+    disease_signals = [
+        "lesion", "necrosis", "blight", "rust", "mildew", "fungal", "rot", "wilt", "leaf spot",
+    ]
+
+    deficiency_score = float(sum(1 for token in deficiency_signals if token in notes_lower))
+    pest_score = float(sum(1 for token in pest_signals if token in notes_lower))
+    disease_score = float(sum(1 for token in disease_signals if token in notes_lower))
+
+    yellow_ratio = image_signals.get("yellow_ratio", 0.0)
+    brown_ratio = image_signals.get("brown_ratio", 0.0)
+    green_ratio = image_signals.get("green_ratio", 0.0)
+    dark_spot_ratio = image_signals.get("dark_spot_ratio", 0.0)
+    edge_intensity = image_signals.get("edge_intensity", 0.0)
+
+    deficiency_score += (yellow_ratio * 6.0) + (brown_ratio * 3.0) + ((1.0 - green_ratio) * 2.0)
+    pest_score += (dark_spot_ratio * 4.0) + (edge_intensity * 3.0) + (brown_ratio * 1.5)
+    disease_score += (dark_spot_ratio * 5.0) + (brown_ratio * 3.5) + (edge_intensity * 2.0)
+
+    model_label, model_confidence, model_version = _predict_issue_with_model(
+        image_signals,
+        concern,
+    )
+
+    if concern == "nutrient_deficiency":
+        possible_issue = "Likely nutrient deficiency pattern"
+    elif concern == "insect_pests":
+        possible_issue = "Likely insect pest attack pattern"
+    else:
+        possible_issue = "Likely disease symptoms pattern"
+
+    if model_label in {"nitrogen_deficiency", "potassium_deficiency", "zinc_deficiency"}:
+        possible_issue = "Likely nutrient deficiency pattern"
+    elif model_label in {"aphid_or_whitefly", "chewing_pest_damage"}:
+        possible_issue = "Likely insect pest attack pattern"
+    elif model_label in {"leaf_spot_or_blight", "rust_or_mildew_pattern"}:
+        possible_issue = "Likely disease symptoms pattern"
+
+    if "zinc" in notes_lower or "strip" in notes_lower:
+        issue_hint = "Possible zinc deficiency"
+    elif "nitrogen" in notes_lower or "uniform yellow" in notes_lower:
+        issue_hint = "Possible nitrogen deficiency"
+    elif "potash" in notes_lower or "leaf edge burn" in notes_lower:
+        issue_hint = "Possible potassium deficiency"
+    elif "aphid" in notes_lower:
+        issue_hint = "Possible aphid infestation"
+    elif "whitefly" in notes_lower:
+        issue_hint = "Possible whitefly infestation"
+    elif "worm" in notes_lower or "larva" in notes_lower:
+        issue_hint = "Possible caterpillar/borer infestation"
+    elif "blight" in notes_lower or "leaf spot" in notes_lower:
+        issue_hint = "Possible blight/leaf spot disease"
+    elif "rust" in notes_lower or "mildew" in notes_lower:
+        issue_hint = "Possible rust or mildew disease"
+    else:
+        if possible_issue == "Likely nutrient deficiency pattern" and yellow_ratio >= 0.18:
+            issue_hint = "Possible nitrogen-related chlorosis pattern"
+        elif possible_issue == "Likely nutrient deficiency pattern" and brown_ratio >= 0.14:
+            issue_hint = "Possible potassium-related leaf burn pattern"
+        elif possible_issue == "Likely insect pest attack pattern" and dark_spot_ratio >= 0.10:
+            issue_hint = "Possible sucking pest/spot damage pattern"
+        elif possible_issue == "Likely insect pest attack pattern" and edge_intensity >= 0.24:
+            issue_hint = "Possible chewing pest damage pattern"
+        elif possible_issue == "Likely disease symptoms pattern" and dark_spot_ratio >= 0.15:
+            issue_hint = "Possible leaf spot/blight disease pattern"
+        elif possible_issue == "Likely disease symptoms pattern" and brown_ratio >= 0.20:
+            issue_hint = "Possible necrotic fungal disease pattern"
+        else:
+            issue_hint = possible_issue
+
+    recommendation = (
+        f"For {crop}, start with field scouting in a zig-zag pattern and inspect 20-25 plants. "
+        "Record upper and lower leaf symptoms, stem condition, and visible insect or disease signs. "
+        f"Since sowing, reported fertilizer use is: {fertilizer_history}. "
+        "Check whether symptoms started before or after each fertilizer application to narrow causes. "
+        "If deficiency is suspected, verify with soil/leaf test before corrective spray. "
+        "If insect attack is suspected, apply integrated pest management: threshold-based action, "
+        "targeted pesticide rotation by mode-of-action, and follow label dose and pre-harvest interval. "
+        "If disease is suspected, use clean field sanitation, remove heavily infected leaves where feasible, "
+        "and apply registered fungicide/bactericide only after confirming diagnosis and crop stage."
+    )
+
+    next_steps = [
+        "Capture 3-5 clear photos in daylight: whole plant, close leaf, underside of leaf, and stem.",
+        "Share field age/stage, exact fertilizer brand/type and dose timeline since sowing, and last spray used.",
+        "Confirm diagnosis with local agronomist or extension officer before major chemical use.",
+    ]
+
+    return CropPhotoRecommendationResponse(
+        selected_crop=crop,
+        concern_type=concern,
+        fertilizer_history=fertilizer_history,
+        model_label=model_label,
+        model_confidence=round(model_confidence, 3),
+        model_version=model_version,
+        possible_issue=issue_hint,
+        recommendation=recommendation,
+        review_case_id=review_case_id,
+        review_status="pending_review",
+        review_message="Case submitted for expert verification. Preliminary recommendation shown.",
+        confidence_note=(
+            "Photo-guided preliminary result based on leaf color/texture signals. "
+            f"Yellow={yellow_ratio:.0%}, Brown={brown_ratio:.0%}, Green={green_ratio:.0%}, "
+            f"Dark spots={dark_spot_ratio:.0%}. Add crop stage and symptom timeline for higher confidence."
+        ),
+        next_steps=next_steps,
+        disclaimer=(
+            "This recommendation is advisory and not a laboratory diagnosis. "
+            "Always follow local extension guidance and product labels."
+        ),
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -667,6 +944,92 @@ def analyze_field(payload: AnalyzeRequest) -> AnalyzeResponse:
         earth_engine_ready=earth_engine_ready,
         diagnostic=diagnostic,
         weather_diagnostic=weather_diagnostic,
+    )
+
+
+@app.post("/crop-photo-recommendation", response_model=CropPhotoRecommendationResponse)
+async def crop_photo_recommendation(
+    photo: UploadFile = File(...),
+    selected_crop: str = Form(...),
+    concern_type: str = Form("nutrient_deficiency"),
+    fertilizer_history: str = Form(...),
+    notes: str = Form(""),
+) -> CropPhotoRecommendationResponse:
+    if not photo.filename:
+        raise HTTPException(status_code=400, detail="photo filename is missing")
+
+    content = await photo.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="photo is empty")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="photo exceeds 10 MB size limit")
+    if len(fertilizer_history.strip()) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="fertilizer_history is required and should describe what was applied since sowing",
+        )
+
+    image_signals = _analyze_crop_image_signals(content)
+    review_case_id = str(uuid.uuid4())
+    response = _build_photo_recommendation(
+        selected_crop,
+        concern_type,
+        notes,
+        fertilizer_history.strip(),
+        review_case_id,
+        image_signals,
+    )
+
+    _REVIEW_CASES[review_case_id] = {
+        "review_case_id": review_case_id,
+        "selected_crop": response.selected_crop,
+        "concern_type": response.concern_type,
+        "fertilizer_history": response.fertilizer_history,
+        "notes": notes.strip(),
+        "review_status": "pending_review",
+        "recommendation": response.recommendation,
+        "reviewer_notes": "",
+    }
+
+    return response
+
+
+@app.get("/crop-photo-cases/{case_id}", response_model=CropPhotoCaseStatusResponse)
+def crop_photo_case_status(case_id: str) -> CropPhotoCaseStatusResponse:
+    case = _REVIEW_CASES.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="review case not found")
+
+    return CropPhotoCaseStatusResponse(
+        review_case_id=case["review_case_id"],
+        selected_crop=case["selected_crop"],
+        concern_type=case["concern_type"],
+        review_status=case["review_status"],
+        recommendation=case["recommendation"],
+        reviewer_notes=case["reviewer_notes"],
+    )
+
+
+@app.post("/crop-photo-cases/{case_id}/review", response_model=CropPhotoCaseStatusResponse)
+def crop_photo_case_review(
+    case_id: str,
+    payload: CropPhotoCaseReviewRequest,
+) -> CropPhotoCaseStatusResponse:
+    case = _REVIEW_CASES.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="review case not found")
+
+    case["review_status"] = "reviewed"
+    case["recommendation"] = payload.recommendation.strip()
+    case["reviewer_notes"] = payload.reviewer_notes.strip()
+
+    return CropPhotoCaseStatusResponse(
+        review_case_id=case["review_case_id"],
+        selected_crop=case["selected_crop"],
+        concern_type=case["concern_type"],
+        review_status=case["review_status"],
+        recommendation=case["recommendation"],
+        reviewer_notes=case["reviewer_notes"],
     )
 
 
