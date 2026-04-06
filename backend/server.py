@@ -7,6 +7,7 @@ import uuid
 from io import BytesIO
 from datetime import date, timedelta
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -99,6 +100,18 @@ class CropPhotoCaseReviewRequest(BaseModel):
     reviewer_notes: str = ""
 
 
+class FarmerHeadlineItem(BaseModel):
+    title_en: str
+    title_ur: str
+    source: str
+    url: str
+
+
+class FarmerHeadlinesResponse(BaseModel):
+    plant_headlines: list[FarmerHeadlineItem]
+    animal_headlines: list[FarmerHeadlineItem]
+
+
 # Cache tile URL templates for nearby points to reduce repeated EE map-id calls.
 _EE_TILE_CACHE: dict[str, tuple[date, str]] = {}
 _EE_TILE_CACHE_TTL_DAYS = 1
@@ -111,6 +124,157 @@ _WHEAT_STAGE_SEQUENCE: list[tuple[str, str, int]] = [
     ("jointing", "jointing / booting", 3),
     ("grain_filling", "grain filling", 4),
 ]
+_FARMER_HEADLINES_FALLBACK: dict[str, list[dict[str, str]]] = {
+    "plant_headlines": [
+        {
+            "title_en": "Punjab trials report better wheat stand with late-autumn seed treatment protocol.",
+            "title_ur": "پنجاب ٹرائلز: خزاں کے آخر میں بیج ٹریٹمنٹ سے گندم کا اگاؤ بہتر رپورٹ ہوا۔",
+            "source": "PARC / NARC Updates",
+            "url": "https://parc.gov.pk/",
+        },
+        {
+            "title_en": "Recent rice studies highlight alternate wetting and drying to save water without major yield loss.",
+            "title_ur": "حالیہ دھان تحقیق: وقفے وقفے سے آبپاشی سے پانی کی بچت، پیداوار میں نمایاں کمی کے بغیر۔",
+            "source": "IRRI Research",
+            "url": "https://www.irri.org/news-and-events",
+        },
+        {
+            "title_en": "Integrated pest monitoring advisories stress field scouting before pesticide application.",
+            "title_ur": "مربوط پیسٹ مانیٹرنگ ہدایات: اسپرے سے پہلے کھیت کی باقاعدہ اسکاوٹنگ پر زور۔",
+            "source": "FAO Crop News",
+            "url": "https://www.fao.org/newsroom/en/",
+        },
+    ],
+    "animal_headlines": [
+        {
+            "title_en": "New dairy nutrition findings emphasize balanced mineral mix during heat stress periods.",
+            "title_ur": "ڈیری غذائیت کی نئی تحقیق: گرمی کے دباؤ میں متوازن منرل مکس کی اہمیت نمایاں۔",
+            "source": "ILRI News",
+            "url": "https://www.ilri.org/news",
+        },
+        {
+            "title_en": "Field reports show timely deworming and vaccination improve young stock survival.",
+            "title_ur": "فیلڈ رپورٹس: بروقت ڈی ورمنگ اور ویکسینیشن سے کم عمر جانوروں کی بقا بہتر۔",
+            "source": "FAO Livestock",
+            "url": "https://www.fao.org/livestock/en/",
+        },
+        {
+            "title_en": "Poultry management research recommends stronger ventilation control in seasonal humidity.",
+            "title_ur": "پولٹری مینجمنٹ تحقیق: موسمی نمی میں بہتر وینٹیلیشن کنٹرول کی سفارش۔",
+            "source": "Poultry World",
+            "url": "https://www.poultryworld.net/",
+        },
+    ],
+}
+_FARMER_HEADLINES_FEEDS: dict[str, list[dict[str, str]]] = {
+    "plant_headlines": [
+        {
+            "source": "Google News - Crop Research",
+            "url": "https://news.google.com/rss/search?q=crop+research+agriculture&hl=en-PK&gl=PK&ceid=PK:en",
+        },
+        {
+            "source": "Google News - Plant Disease",
+            "url": "https://news.google.com/rss/search?q=plant+disease+management+farming&hl=en-PK&gl=PK&ceid=PK:en",
+        },
+    ],
+    "animal_headlines": [
+        {
+            "source": "Google News - Livestock Research",
+            "url": "https://news.google.com/rss/search?q=livestock+research+dairy+farming&hl=en-PK&gl=PK&ceid=PK:en",
+        },
+        {
+            "source": "Google News - Poultry Health",
+            "url": "https://news.google.com/rss/search?q=poultry+health+research&hl=en-PK&gl=PK&ceid=PK:en",
+        },
+    ],
+}
+_FARMER_HEADLINES_CACHE: dict[str, list[dict[str, str]]] = {
+    "plant_headlines": list(_FARMER_HEADLINES_FALLBACK["plant_headlines"]),
+    "animal_headlines": list(_FARMER_HEADLINES_FALLBACK["animal_headlines"]),
+}
+_FARMER_HEADLINES_LAST_REFRESH: date | None = None
+
+
+def _rss_items(url: str, source: str, limit: int = 4) -> list[dict[str, str]]:
+    try:
+        response = requests.get(
+            url,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AgriAppBot/1.0)"},
+        )
+        response.raise_for_status()
+
+        root = ET.fromstring(response.content)
+        items: list[dict[str, str]] = []
+        for node in root.findall("./channel/item"):
+            title = (node.findtext("title") or "").strip()
+            link = (node.findtext("link") or "").strip()
+            if not title or not link:
+                continue
+            items.append(
+                {
+                    "title_en": title,
+                    "title_ur": title,
+                    "source": source,
+                    "url": link,
+                }
+            )
+            if len(items) >= limit:
+                break
+        return items
+    except Exception:
+        return []
+
+
+def _merge_unique_headlines(headlines: list[dict[str, str]], limit: int = 4) -> list[dict[str, str]]:
+    deduped: list[dict[str, str]] = []
+    seen_titles: set[str] = set()
+    seen_urls: set[str] = set()
+    for item in headlines:
+        title_key = item.get("title_en", "").strip().lower()
+        url_key = item.get("url", "").strip().lower()
+        if not title_key or not url_key:
+            continue
+        if title_key in seen_titles or url_key in seen_urls:
+            continue
+        seen_titles.add(title_key)
+        seen_urls.add(url_key)
+        deduped.append(item)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _refresh_farmer_headlines(force_refresh: bool = False) -> None:
+    global _FARMER_HEADLINES_LAST_REFRESH
+
+    today = date.today()
+    if not force_refresh and _FARMER_HEADLINES_LAST_REFRESH == today:
+        return
+
+    refreshed_plant: list[dict[str, str]] = []
+    refreshed_animal: list[dict[str, str]] = []
+
+    for feed in _FARMER_HEADLINES_FEEDS["plant_headlines"]:
+        refreshed_plant.extend(_rss_items(feed["url"], feed["source"]))
+
+    for feed in _FARMER_HEADLINES_FEEDS["animal_headlines"]:
+        refreshed_animal.extend(_rss_items(feed["url"], feed["source"]))
+
+    refreshed_plant = _merge_unique_headlines(refreshed_plant, limit=4)
+    refreshed_animal = _merge_unique_headlines(refreshed_animal, limit=4)
+
+    _FARMER_HEADLINES_CACHE["plant_headlines"] = (
+        refreshed_plant
+        if refreshed_plant
+        else list(_FARMER_HEADLINES_FALLBACK["plant_headlines"])
+    )
+    _FARMER_HEADLINES_CACHE["animal_headlines"] = (
+        refreshed_animal
+        if refreshed_animal
+        else list(_FARMER_HEADLINES_FALLBACK["animal_headlines"])
+    )
+    _FARMER_HEADLINES_LAST_REFRESH = today
 
 
 def _weather_cache_key(latitude: float, longitude: float) -> str:
@@ -890,6 +1054,22 @@ def _build_photo_recommendation(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/farmer-headlines", response_model=FarmerHeadlinesResponse)
+def farmer_headlines(force_refresh: bool = False) -> FarmerHeadlinesResponse:
+    _refresh_farmer_headlines(force_refresh=force_refresh)
+
+    return FarmerHeadlinesResponse(
+        plant_headlines=[
+            FarmerHeadlineItem(**item)
+            for item in _FARMER_HEADLINES_CACHE["plant_headlines"]
+        ],
+        animal_headlines=[
+            FarmerHeadlineItem(**item)
+            for item in _FARMER_HEADLINES_CACHE["animal_headlines"]
+        ],
+    )
 
 
 @app.post("/analyze-field", response_model=AnalyzeResponse)

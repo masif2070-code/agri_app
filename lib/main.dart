@@ -192,14 +192,191 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
   final List<int> _forecastCodes = [];
   final List<double> _forecastMax = [];
   final List<double> _forecastMin = [];
+  static const List<Map<String, String>> _fallbackPlantHeadlines = [
+    {
+      'titleEn':
+          'Punjab trials report better wheat stand with late-autumn seed treatment protocol.',
+      'titleUr': 'پنجاب ٹرائلز: خزاں کے آخر میں بیج ٹریٹمنٹ سے گندم کا اگاؤ بہتر رپورٹ ہوا۔',
+      'source': 'PARC / NARC Updates',
+      'url': 'https://parc.gov.pk/',
+    },
+    {
+      'titleEn':
+          'Recent rice studies highlight alternate wetting and drying to save water without major yield loss.',
+      'titleUr':
+          'حالیہ دھان تحقیق: وقفے وقفے سے آبپاشی سے پانی کی بچت، پیداوار میں نمایاں کمی کے بغیر۔',
+      'source': 'IRRI Research',
+      'url': 'https://www.irri.org/news-and-events',
+    },
+    {
+      'titleEn':
+          'Integrated pest monitoring advisories stress field scouting before pesticide application.',
+      'titleUr':
+          'مربوط پیسٹ مانیٹرنگ ہدایات: اسپرے سے پہلے کھیت کی باقاعدہ اسکاوٹنگ پر زور۔',
+      'source': 'FAO Crop News',
+      'url': 'https://www.fao.org/newsroom/en/',
+    },
+  ];
+  static const List<Map<String, String>> _fallbackAnimalHeadlines = [
+    {
+      'titleEn':
+          'New dairy nutrition findings emphasize balanced mineral mix during heat stress periods.',
+      'titleUr':
+          'ڈیری غذائیت کی نئی تحقیق: گرمی کے دباؤ میں متوازن منرل مکس کی اہمیت نمایاں۔',
+      'source': 'ILRI News',
+      'url': 'https://www.ilri.org/news',
+    },
+    {
+      'titleEn':
+          'Field reports show timely deworming and vaccination improve young stock survival.',
+      'titleUr':
+          'فیلڈ رپورٹس: بروقت ڈی ورمنگ اور ویکسینیشن سے کم عمر جانوروں کی بقا بہتر۔',
+      'source': 'FAO Livestock',
+      'url': 'https://www.fao.org/livestock/en/',
+    },
+    {
+      'titleEn':
+          'Poultry management research recommends stronger ventilation control in seasonal humidity.',
+      'titleUr':
+          'پولٹری مینجمنٹ تحقیق: موسمی نمی میں بہتر وینٹیلیشن کنٹرول کی سفارش۔',
+      'source': 'Poultry World',
+      'url': 'https://www.poultryworld.net/',
+    },
+  ];
+  List<Map<String, String>> _plantHeadlines =
+      List<Map<String, String>>.from(_fallbackPlantHeadlines);
+  List<Map<String, String>> _animalHeadlines =
+      List<Map<String, String>>.from(_fallbackAnimalHeadlines);
 
   bool get _isUrdu => widget.selectedLanguage == 'Urdu';
   String _t(String en, String ur) => _isUrdu ? ur : en;
+
+  Map<String, String>? _headlineFromJson(dynamic raw) {
+    if (raw is! Map<String, dynamic>) {
+      return null;
+    }
+    final titleEn = (raw['title_en'] as String?)?.trim() ?? '';
+    final titleUr = (raw['title_ur'] as String?)?.trim() ?? '';
+    final source = (raw['source'] as String?)?.trim() ?? '';
+    final url = (raw['url'] as String?)?.trim() ?? '';
+    if (titleEn.isEmpty || source.isEmpty || url.isEmpty) {
+      return null;
+    }
+    return {
+      'titleEn': titleEn,
+      'titleUr': titleUr.isNotEmpty ? titleUr : titleEn,
+      'source': source,
+      'url': url,
+    };
+  }
+
+  Future<void> _fetchFarmerHeadlines() async {
+    try {
+      final uri = Uri.parse('$backendBaseUrl/farmer-headlines');
+      final response = await http.get(uri);
+      if (response.statusCode != 200) {
+        return;
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final plantItems =
+          ((data['plant_headlines'] as List<dynamic>?) ?? <dynamic>[])
+              .map(_headlineFromJson)
+              .whereType<Map<String, String>>()
+              .toList();
+      final animalItems =
+          ((data['animal_headlines'] as List<dynamic>?) ?? <dynamic>[])
+              .map(_headlineFromJson)
+              .whereType<Map<String, String>>()
+              .toList();
+
+      if (!mounted) return;
+      setState(() {
+        if (plantItems.isNotEmpty) {
+          _plantHeadlines = plantItems;
+        }
+        if (animalItems.isNotEmpty) {
+          _animalHeadlines = animalItems;
+        }
+      });
+    } catch (_) {
+      // Keep fallback headlines if backend is unavailable.
+    }
+  }
+
+  Future<void> _openHeadlineLink(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t('Invalid headline link', 'ہیڈلائن لنک درست نہیں ہے')),
+        ),
+      );
+      return;
+    }
+
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t('Could not open headline link', 'ہیڈلائن لنک نہیں کھل سکا')),
+        ),
+      );
+    }
+  }
+
+  Widget _headlineTile(Map<String, String> item) {
+    return InkWell(
+      onTap: () => _openHeadlineLink(item['url'] ?? ''),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 3),
+              child: Icon(Icons.fiber_manual_record, size: 8),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isUrdu ? (item['titleUr'] ?? '') : (item['titleEn'] ?? ''),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item['source'] ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.green.shade800,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.open_in_new, size: 14, color: Colors.green.shade700),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     _fetchTopWeather(lat: _weatherLat, lon: _weatherLon);
+    _fetchFarmerHeadlines();
   }
 
   IconData _weatherIcon(int code) {
@@ -416,155 +593,261 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                                 ),
                               ],
                             ),
-                            Text(
-                              _t(
-                                'Location: $_weatherLocationLabel',
-                                'مقام: $_weatherLocationLabel',
-                              ),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
                             const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _useCurrentLocationWeather,
-                                  icon: const Icon(Icons.my_location),
-                                  label: Text(
-                                    _t(
-                                      'Use My Location',
-                                      'میری لوکیشن استعمال کریں',
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final sideBySide = constraints.maxWidth >= 430;
+
+                                final weatherPane = Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _t(
+                                        'Location: $_weatherLocationLabel',
+                                        'مقام: $_weatherLocationLabel',
+                                      ),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
                                     ),
-                                  ),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: () {
-                                    setState(() {
-                                      _weatherLat = defaultPakistanLat;
-                                      _weatherLon = defaultPakistanLon;
-                                      _weatherLocationLabel = _t(
-                                        'Pakistan (default)',
-                                        'پاکستان (ڈیفالٹ)',
-                                      );
-                                    });
-                                    _fetchTopWeather(
-                                      lat: _weatherLat,
-                                      lon: _weatherLon,
-                                    );
-                                  },
-                                  icon: const Icon(Icons.location_city),
-                                  label: Text(
-                                    _t(
-                                      'Use Pakistan Default',
-                                      'پاکستان ڈیفالٹ استعمال کریں',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            if (_loadingWeather)
-                              Text(
-                                _t(
-                                  'Loading weather...',
-                                  'موسم لوڈ ہو رہا ہے...',
-                                ),
-                              )
-                            else if (_weatherError != null)
-                              Text(
-                                _weatherError!,
-                                style: const TextStyle(color: Colors.red),
-                              )
-                            else
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _t(
-                                      'Current: ${_temperature?.toStringAsFixed(1) ?? '--'}°C, Wind: ${_windSpeed?.toStringAsFixed(1) ?? '--'} km/h',
-                                      'موجودہ: ${_temperature?.toStringAsFixed(1) ?? '--'}°C، ہوا: ${_windSpeed?.toStringAsFixed(1) ?? '--'} کلومیٹر/گھنٹہ',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: List.generate(
-                                      _forecastCodes.length,
-                                      (index) {
-                                        return Expanded(
-                                          child: Card(
-                                            margin: EdgeInsets.only(
-                                              right:
-                                                  index <
-                                                      _forecastCodes.length - 1
-                                                  ? 6
-                                                  : 0,
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 8,
-                                                    horizontal: 6,
-                                                  ),
-                                              child: Column(
-                                                children: [
-                                                  Text(
-                                                    _forecastDayLabel(index),
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Icon(
-                                                    _weatherIcon(
-                                                      _forecastCodes[index],
-                                                    ),
-                                                    size: 24,
-                                                    color:
-                                                        Colors.orange.shade700,
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    _weatherConditionText(
-                                                      _forecastCodes[index],
-                                                    ),
-                                                    style: const TextStyle(
-                                                      fontSize: 11,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    '${_forecastMax[index].toStringAsFixed(0)}° / ${_forecastMin[index].toStringAsFixed(0)}°',
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 6,
+                                      children: [
+                                        OutlinedButton.icon(
+                                          onPressed: _useCurrentLocationWeather,
+                                          icon: const Icon(Icons.my_location),
+                                          label: Text(
+                                            _t(
+                                              'Use My Location',
+                                              'میری لوکیشن استعمال کریں',
                                             ),
                                           ),
-                                        );
-                                      },
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () {
+                                            setState(() {
+                                              _weatherLat = defaultPakistanLat;
+                                              _weatherLon = defaultPakistanLon;
+                                              _weatherLocationLabel = _t(
+                                                'Pakistan (default)',
+                                                'پاکستان (ڈیفالٹ)',
+                                              );
+                                            });
+                                            _fetchTopWeather(
+                                              lat: _weatherLat,
+                                              lon: _weatherLon,
+                                            );
+                                          },
+                                          icon: const Icon(Icons.location_city),
+                                          label: Text(
+                                            _t(
+                                              'Use Pakistan Default',
+                                              'پاکستان ڈیفالٹ استعمال کریں',
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    if (_loadingWeather)
+                                      Text(
+                                        _t(
+                                          'Loading weather...',
+                                          'موسم لوڈ ہو رہا ہے...',
+                                        ),
+                                      )
+                                    else if (_weatherError != null)
+                                      Text(
+                                        _weatherError!,
+                                        style: const TextStyle(color: Colors.red),
+                                      )
+                                    else
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _t(
+                                              'Current: ${_temperature?.toStringAsFixed(1) ?? '--'}°C, Wind: ${_windSpeed?.toStringAsFixed(1) ?? '--'} km/h',
+                                              'موجودہ: ${_temperature?.toStringAsFixed(1) ?? '--'}°C، ہوا: ${_windSpeed?.toStringAsFixed(1) ?? '--'} کلومیٹر/گھنٹہ',
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: List.generate(
+                                              _forecastCodes.length,
+                                              (index) {
+                                                return Expanded(
+                                                  child: Card(
+                                                    margin: EdgeInsets.only(
+                                                      right:
+                                                          index <
+                                                              _forecastCodes
+                                                                      .length -
+                                                                  1
+                                                          ? 6
+                                                          : 0,
+                                                    ),
+                                                    child: Padding(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            vertical: 8,
+                                                            horizontal: 6,
+                                                          ),
+                                                      child: Column(
+                                                        children: [
+                                                          Text(
+                                                            _forecastDayLabel(
+                                                              index,
+                                                            ),
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 12,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 4,
+                                                          ),
+                                                          Icon(
+                                                            _weatherIcon(
+                                                              _forecastCodes[index],
+                                                            ),
+                                                            size: 24,
+                                                            color:
+                                                                Colors.orange
+                                                                    .shade700,
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 4,
+                                                          ),
+                                                          Text(
+                                                            _weatherConditionText(
+                                                              _forecastCodes[index],
+                                                            ),
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 11,
+                                                                ),
+                                                            textAlign:
+                                                                TextAlign.center,
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 2,
+                                                          ),
+                                                          Text(
+                                                            '${_forecastMax[index].toStringAsFixed(0)}° / ${_forecastMin[index].toStringAsFixed(0)}°',
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 12,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _t(
+                                        '3-day weather is shown before entering Crop or Animal sections.',
+                                        'فصل یا جانور سیکشن میں جانے سے پہلے 3 دن کا موسم دکھایا جا رہا ہے۔',
+                                      ),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                );
+
+                                final headlinesPane = Container(
+                                  margin: EdgeInsets.only(
+                                    left: sideBySide ? 10 : 0,
+                                    top: sideBySide ? 0 : 10,
+                                  ),
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade50,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.green.shade100,
                                     ),
                                   ),
-                                ],
-                              ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _t(
-                                '3-day weather is shown before entering Crop or Animal sections.',
-                                'فصل یا جانور سیکشن میں جانے سے پہلے 3 دن کا موسم دکھایا جا رہا ہے۔',
-                              ),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _t(
+                                          'Farmer Headlines',
+                                          'کسانوں کی ہیڈلائنز',
+                                        ),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _t(
+                                          'Plant research',
+                                          'پودوں کی تحقیق',
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.green.shade900,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      ..._plantHeadlines
+                                          .take(2)
+                                          .map(_headlineTile),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _t(
+                                          'Animal research',
+                                          'جانوروں کی تحقیق',
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.green.shade900,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      ..._animalHeadlines
+                                          .take(2)
+                                          .map(_headlineTile),
+                                    ],
+                                  ),
+                                );
+
+                                if (sideBySide) {
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(flex: 6, child: weatherPane),
+                                      Expanded(flex: 5, child: headlinesPane),
+                                    ],
+                                  );
+                                }
+
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [weatherPane, headlinesPane],
+                                );
+                              },
                             ),
                           ],
                         ),
