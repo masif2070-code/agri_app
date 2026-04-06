@@ -1,2 +1,2 @@
 # agri_app
-GIS-based farming app using satellite data
+GIS-based farming app for Pakistan using satellite data

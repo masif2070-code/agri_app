@@ -1,4 +1,4 @@
-package com.example.agri_app
+package com.masif.agri_app
 
 import io.flutter.embedding.android.FlutterActivity
 
