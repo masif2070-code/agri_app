@@ -97,6 +97,7 @@ class LanguageSelectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
     return Scaffold(
       appBar: AppBar(title: const Text('Choose Language / زبان منتخب کریں')),
       body: Container(
@@ -250,6 +251,204 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
 
   bool get _isUrdu => widget.selectedLanguage == 'Urdu';
   String _t(String en, String ur) => _isUrdu ? ur : en;
+
+  String _gregorianDateLabel(DateTime now) {
+    const weekdaysEn = <String>[
+      'Mon',
+      'Tue',
+      'Wed',
+      'Thu',
+      'Fri',
+      'Sat',
+      'Sun',
+    ];
+    const weekdaysUr = <String>[
+      'پیر',
+      'منگل',
+      'بدھ',
+      'جمعرات',
+      'جمعہ',
+      'ہفتہ',
+      'اتوار',
+    ];
+    const monthsEn = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    const monthsUr = <String>[
+      'جنوری',
+      'فروری',
+      'مارچ',
+      'اپریل',
+      'مئی',
+      'جون',
+      'جولائی',
+      'اگست',
+      'ستمبر',
+      'اکتوبر',
+      'نومبر',
+      'دسمبر',
+    ];
+
+    final weekday = _isUrdu
+        ? weekdaysUr[now.weekday - 1]
+        : weekdaysEn[now.weekday - 1];
+    final month = _isUrdu ? monthsUr[now.month - 1] : monthsEn[now.month - 1];
+    return _isUrdu
+        ? 'گریگورین: $weekday، ${now.day} $month ${now.year}'
+        : 'Gregorian: $weekday, ${now.day} $month ${now.year}';
+  }
+
+  String _desiDateLabel(DateTime now) {
+    const startMonthDay = <List<int>>[
+      [3, 14],
+      [4, 13],
+      [5, 14],
+      [6, 15],
+      [7, 16],
+      [8, 16],
+      [9, 15],
+      [10, 15],
+      [11, 14],
+      [12, 14],
+      [1, 13],
+      [2, 13],
+    ];
+    const monthsEn = <String>[
+      'Chet',
+      'Vaisakh',
+      'Jeth',
+      'Harh',
+      'Sawan',
+      'Bhadon',
+      'Assu',
+      'Katak',
+      'Maghar',
+      'Poh',
+      'Magh',
+      'Phagun',
+    ];
+    const monthsUr = <String>[
+      'چیت',
+      'ویساکھ',
+      'جیٹھ',
+      'ہاڑ',
+      'ساون',
+      'بھادوں',
+      'اسو',
+      'کاتک',
+      'مگھر',
+      'پوہ',
+      'ماگھ',
+      'پھگن',
+    ];
+
+    final useCurrentCycle =
+        now.isAfter(DateTime(now.year, 3, 13, 23, 59, 59));
+    final cycleStartYear = useCurrentCycle ? now.year : now.year - 1;
+
+    final boundaries = List<DateTime>.generate(12, (index) {
+      final month = startMonthDay[index][0];
+      final day = startMonthDay[index][1];
+      final year = month >= 3 ? cycleStartYear : cycleStartYear + 1;
+      return DateTime(year, month, day);
+    });
+
+    var monthIndex = 0;
+    for (var i = 0; i < boundaries.length; i++) {
+      final isLast = i == boundaries.length - 1;
+      final current = boundaries[i];
+      final next = isLast ? DateTime(cycleStartYear + 1, 3, 14) : boundaries[i + 1];
+      if ((now.isAtSameMomentAs(current) || now.isAfter(current)) && now.isBefore(next)) {
+        monthIndex = i;
+        break;
+      }
+    }
+
+    final start = boundaries[monthIndex];
+    final dayNo = now.difference(start).inDays + 1;
+    final monthName = _isUrdu ? monthsUr[monthIndex] : monthsEn[monthIndex];
+    return _isUrdu ? 'دیسی: $dayNo $monthName' : 'Desi: $dayNo $monthName';
+  }
+
+  String _hijriDateLabel(DateTime now) {
+    final localDate = DateTime(now.year, now.month, now.day);
+
+    // Gregorian to Julian day number.
+    final a = (14 - localDate.month) ~/ 12;
+    final y = localDate.year + 4800 - a;
+    final m = localDate.month + 12 * a - 3;
+    final jd =
+        localDate.day +
+        ((153 * m + 2) ~/ 5) +
+        365 * y +
+        (y ~/ 4) -
+        (y ~/ 100) +
+        (y ~/ 400) -
+        32045;
+
+    // Civil/tabular Hijri conversion (approximation).
+    var l = jd - 1948440 + 10632;
+    final n = (l - 1) ~/ 10631;
+    l = l - 10631 * n + 354;
+    final j =
+        (((10985 - l) ~/ 5316) * ((50 * l) ~/ 17719)) +
+        ((l ~/ 5670) * ((43 * l) ~/ 15238));
+    l =
+        l -
+        (((30 - j) ~/ 15) * ((17719 * j) ~/ 50)) -
+        ((j ~/ 16) * ((15238 * j) ~/ 43)) +
+        29;
+    final hijriMonth = (24 * l) ~/ 709;
+    final hijriDay = l - (709 * hijriMonth) ~/ 24;
+    final hijriYear = 30 * n + j - 30;
+
+    const monthsEn = <String>[
+      'Muharram',
+      'Safar',
+      'Rabi al-Awwal',
+      'Rabi al-Thani',
+      'Jumada al-Awwal',
+      'Jumada al-Thani',
+      'Rajab',
+      'Shaban',
+      'Ramadan',
+      'Shawwal',
+      'Dhul Qadah',
+      'Dhul Hijjah',
+    ];
+    const monthsUr = <String>[
+      'محرم',
+      'صفر',
+      'ربیع الاول',
+      'ربیع الثانی',
+      'جمادی الاول',
+      'جمادی الثانی',
+      'رجب',
+      'شعبان',
+      'رمضان',
+      'شوال',
+      'ذوالقعدہ',
+      'ذوالحجہ',
+    ];
+
+    final monthName = _isUrdu
+        ? monthsUr[(hijriMonth.clamp(1, 12)) - 1]
+        : monthsEn[(hijriMonth.clamp(1, 12)) - 1];
+    return _isUrdu
+        ? 'ہجری: $hijriDay $monthName $hijriYear'
+        : 'Hijri: $hijriDay $monthName $hijriYear AH';
+  }
 
   Map<String, String>? _headlineFromJson(dynamic raw) {
     if (raw is! Map<String, dynamic>) {
@@ -537,6 +736,7 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
     return Scaffold(
       appBar: AppBar(title: Text(_t('Agrology - Sections', 'ایگرولوجی - حصے'))),
       body: Container(
@@ -556,20 +756,66 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      _t('Choose a section', 'سیکشن منتخب کریں'),
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.calendar_month,
+                                    size: 16,
+                                    color: Colors.green.shade700,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _t('Date', 'تاریخ'),
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.green.shade800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _gregorianDateLabel(now),
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _desiDateLabel(now),
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _hijriDateLabel(now),
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -593,7 +839,7 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 4),
                             LayoutBuilder(
                               builder: (context, constraints) {
                                 final sideBySide = constraints.maxWidth >= 430;
@@ -854,177 +1100,205 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _t(
-                                'Browse complete farming headlines and research updates in one place.',
-                                'کاشتکاری کی مکمل خبریں اور تحقیقی اپڈیٹس ایک جگہ دیکھیں۔',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF00695C),
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => FarmerHeadlinesScreen(
-                                        selectedLanguage:
-                                            widget.selectedLanguage,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.campaign),
-                                label: Text(
-                                  _t(
-                                    'Open Farmer Headlines',
-                                    'کسان ہیڈلائنز کھولیں',
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                    Text(
+                      _t('Choose a section', 'سیکشن منتخب کریں'),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 12),
                     Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _t(
-                                'Check indicative market prices for fertilizer, wheat, rice, and gold.',
-                                'کھاد، گندم، چاول اور سونے کی اشاریہ مارکیٹ قیمتیں دیکھیں۔',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF6A1B9A),
-                                  foregroundColor: Colors.white,
+                            ExpansionTile(
+                              leading: const Icon(Icons.agriculture),
+                              title: Text(_t('Crop Section', 'فصل سیکشن')),
+                              subtitle: Text(
+                                _t(
+                                  'GIS field analysis and crop instructions',
+                                  'GIS فیلڈ تجزیہ اور فصل ہدایات',
                                 ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => CommodityPricesScreen(
-                                        selectedLanguage:
-                                            widget.selectedLanguage,
+                              ),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                12,
+                              ),
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF2E7D32),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => HomeScreen(
+                                            initialLanguage:
+                                                widget.selectedLanguage,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.open_in_new),
+                                    label: Text(
+                                      _t(
+                                        'Open Crop Section',
+                                        'فصل سیکشن کھولیں',
                                       ),
                                     ),
-                                  );
-                                },
-                                icon: const Icon(Icons.price_change),
-                                label: Text(
-                                  _t(
-                                    'Open Commodity Prices',
-                                    'کموڈیٹی قیمتیں کھولیں',
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _t(
-                                'GIS field analysis, map-based field selection, and crop instructions.',
-                                'GIS فیلڈ تجزیہ، نقشے کے ذریعے کھیت کا انتخاب، اور فصل ہدایات۔',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2E7D32),
-                                  foregroundColor: Colors.white,
+                            const Divider(height: 1),
+                            ExpansionTile(
+                              leading: const Icon(Icons.pets),
+                              title: Text(_t('Animal Section', 'جانور سیکشن')),
+                              subtitle: Text(
+                                _t(
+                                  'Livestock and pet care guidance',
+                                  'مویشی اور پالتو دیکھ بھال رہنمائی',
                                 ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => HomeScreen(
-                                        initialLanguage:
-                                            widget.selectedLanguage,
+                              ),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                12,
+                              ),
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF1E88E5),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => AnimalSectionScreen(
+                                            selectedLanguage:
+                                                widget.selectedLanguage,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.open_in_new),
+                                    label: Text(
+                                      _t(
+                                        'Open Animal Section',
+                                        'جانور سیکشن کھولیں',
                                       ),
                                     ),
-                                  );
-                                },
-                                icon: const Icon(Icons.agriculture),
-                                label: Text(
-                                  _t('Open Crop Section', 'فصل سیکشن کھولیں'),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _t(
-                                'Practical guidance for livestock and pets, including health, feeding, breeding, and daily care support.',
-                                'مویشیوں اور پالتو جانوروں کے لیے عملی رہنمائی، جس میں صحت، خوراک، بریڈنگ، اور روزمرہ دیکھ بھال شامل ہے۔',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1E88E5),
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => AnimalSectionScreen(
-                                        selectedLanguage:
-                                            widget.selectedLanguage,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.pets),
-                                label: Text(
-                                  _t(
-                                    'Open Animal Section',
-                                    'جانور سیکشن کھولیں',
                                   ),
                                 ),
+                              ],
+                            ),
+                            const Divider(height: 1),
+                            ExpansionTile(
+                              leading: const Icon(Icons.campaign),
+                              title: Text(
+                                _t('Farmer Headlines', 'کسان ہیڈلائنز'),
                               ),
+                              subtitle: Text(
+                                _t(
+                                  'Research and market news updates',
+                                  'تحقیقی اور مارکیٹ نیوز اپڈیٹس',
+                                ),
+                              ),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                12,
+                              ),
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF00695C),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => FarmerHeadlinesScreen(
+                                            selectedLanguage:
+                                                widget.selectedLanguage,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.open_in_new),
+                                    label: Text(
+                                      _t(
+                                        'Open Farmer Headlines',
+                                        'کسان ہیڈلائنز کھولیں',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Divider(height: 1),
+                            ExpansionTile(
+                              leading: const Icon(Icons.price_change),
+                              title: Text(
+                                _t('Commodity Prices', 'کموڈیٹی قیمتیں'),
+                              ),
+                              subtitle: Text(
+                                _t(
+                                  'Fertilizer, wheat/rice, and gold rates',
+                                  'کھاد، گندم/چاول، اور سونے کی قیمتیں',
+                                ),
+                              ),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                12,
+                              ),
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF6A1B9A),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => CommodityPricesScreen(
+                                            selectedLanguage:
+                                                widget.selectedLanguage,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.open_in_new),
+                                    label: Text(
+                                      _t(
+                                        'Open Commodity Prices',
+                                        'کموڈیٹی قیمتیں کھولیں',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
