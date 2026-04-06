@@ -112,6 +112,28 @@ class FarmerHeadlinesResponse(BaseModel):
     animal_headlines: list[FarmerHeadlineItem]
 
 
+class CommodityPriceItem(BaseModel):
+    commodity_key: str
+    title_en: str
+    title_ur: str
+    unit_en: str
+    unit_ur: str
+    price_pkr: float
+    note_en: str
+    note_ur: str
+
+
+class CommodityPricesResponse(BaseModel):
+    market_region_en: str
+    market_region_ur: str
+    updated_on: str
+    source_note_en: str
+    source_note_ur: str
+    disclaimer_en: str
+    disclaimer_ur: str
+    items: list[CommodityPriceItem]
+
+
 # Cache tile URL templates for nearby points to reduce repeated EE map-id calls.
 _EE_TILE_CACHE: dict[str, tuple[date, str]] = {}
 _EE_TILE_CACHE_TTL_DAYS = 1
@@ -193,6 +215,58 @@ _FARMER_HEADLINES_CACHE: dict[str, list[dict[str, str]]] = {
     "animal_headlines": list(_FARMER_HEADLINES_FALLBACK["animal_headlines"]),
 }
 _FARMER_HEADLINES_LAST_REFRESH: date | None = None
+_COMMODITY_PRICES: list[dict[str, Any]] = [
+    {
+        "commodity_key": "urea_bag",
+        "title_en": "Urea Fertilizer Bag",
+        "title_ur": "یوریا کھاد بیگ",
+        "unit_en": "Per 50 kg bag",
+        "unit_ur": "فی 50 کلو بیگ",
+        "price_pkr": 4500,
+        "note_en": "Indicative dealer retail range",
+        "note_ur": "اشاریہ ڈیلر ریٹیل رینج",
+    },
+    {
+        "commodity_key": "dap_bag",
+        "title_en": "DAP Fertilizer Bag",
+        "title_ur": "ڈی اے پی کھاد بیگ",
+        "unit_en": "Per 50 kg bag",
+        "unit_ur": "فی 50 کلو بیگ",
+        "price_pkr": 12500,
+        "note_en": "Indicative dealer retail range",
+        "note_ur": "اشاریہ ڈیلر ریٹیل رینج",
+    },
+    {
+        "commodity_key": "wheat_40kg",
+        "title_en": "Wheat",
+        "title_ur": "گندم",
+        "unit_en": "Per 40 kg",
+        "unit_ur": "فی 40 کلو",
+        "price_pkr": 3100,
+        "note_en": "Approx mandi spot value",
+        "note_ur": "تقریبی منڈی اسپاٹ ویلیو",
+    },
+    {
+        "commodity_key": "rice_40kg",
+        "title_en": "Rice",
+        "title_ur": "چاول",
+        "unit_en": "Per 40 kg",
+        "unit_ur": "فی 40 کلو",
+        "price_pkr": 7200,
+        "note_en": "Approx quality-mix mandi value",
+        "note_ur": "تقریبی معیار کے ملاپ کی منڈی ویلیو",
+    },
+    {
+        "commodity_key": "gold_tola",
+        "title_en": "Gold",
+        "title_ur": "سونا",
+        "unit_en": "Per tola",
+        "unit_ur": "فی تولہ",
+        "price_pkr": 338000,
+        "note_en": "Approx bullion market reference",
+        "note_ur": "تقریبی بلین مارکیٹ حوالہ",
+    },
+]
 
 
 def _rss_items(url: str, source: str, limit: int = 4) -> list[dict[str, str]]:
@@ -1069,6 +1143,28 @@ def farmer_headlines(force_refresh: bool = False) -> FarmerHeadlinesResponse:
             FarmerHeadlineItem(**item)
             for item in _FARMER_HEADLINES_CACHE["animal_headlines"]
         ],
+    )
+
+
+@app.get("/commodity-prices", response_model=CommodityPricesResponse)
+def commodity_prices() -> CommodityPricesResponse:
+    return CommodityPricesResponse(
+        market_region_en="Pakistan reference markets",
+        market_region_ur="پاکستانی ریفرنس مارکیٹس",
+        updated_on=date.today().isoformat(),
+        source_note_en=(
+            "Prices are reference indicators built from mixed market observations and news snapshots."
+        ),
+        source_note_ur=(
+            "قیمتیں ریفرنس اشارے ہیں جو مختلف مارکیٹ مشاہدات اور خبروں کے خلاصوں سے بنائی گئی ہیں۔"
+        ),
+        disclaimer_en=(
+            "Use for planning only. Actual local dealer and mandi rates may differ by date, quality, and city."
+        ),
+        disclaimer_ur=(
+            "صرف منصوبہ بندی کے لیے استعمال کریں۔ حقیقی مقامی ڈیلر اور منڈی ریٹس تاریخ، معیار اور شہر کے حساب سے مختلف ہو سکتے ہیں۔"
+        ),
+        items=[CommodityPriceItem(**item) for item in _COMMODITY_PRICES],
     )
 
 

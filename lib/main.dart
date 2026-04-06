@@ -862,6 +862,96 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                           children: [
                             Text(
                               _t(
+                                'Browse complete farming headlines and research updates in one place.',
+                                'کاشتکاری کی مکمل خبریں اور تحقیقی اپڈیٹس ایک جگہ دیکھیں۔',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF00695C),
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => FarmerHeadlinesScreen(
+                                        selectedLanguage:
+                                            widget.selectedLanguage,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.campaign),
+                                label: Text(
+                                  _t(
+                                    'Open Farmer Headlines',
+                                    'کسان ہیڈلائنز کھولیں',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _t(
+                                'Check indicative market prices for fertilizer, wheat, rice, and gold.',
+                                'کھاد، گندم، چاول اور سونے کی اشاریہ مارکیٹ قیمتیں دیکھیں۔',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6A1B9A),
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => CommodityPricesScreen(
+                                        selectedLanguage:
+                                            widget.selectedLanguage,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.price_change),
+                                label: Text(
+                                  _t(
+                                    'Open Commodity Prices',
+                                    'کموڈیٹی قیمتیں کھولیں',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _t(
                                 'GIS field analysis, map-based field selection, and crop instructions.',
                                 'GIS فیلڈ تجزیہ، نقشے کے ذریعے کھیت کا انتخاب، اور فصل ہدایات۔',
                               ),
@@ -946,6 +1036,349 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class FarmerHeadlinesScreen extends StatefulWidget {
+  const FarmerHeadlinesScreen({super.key, required this.selectedLanguage});
+
+  final String selectedLanguage;
+
+  @override
+  State<FarmerHeadlinesScreen> createState() => _FarmerHeadlinesScreenState();
+}
+
+class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, String>> _plantHeadlines = [];
+  List<Map<String, String>> _animalHeadlines = [];
+
+  bool get _isUrdu => widget.selectedLanguage == 'Urdu';
+  String _t(String en, String ur) => _isUrdu ? ur : en;
+
+  Map<String, String>? _headlineFromJson(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final titleEn = (raw['title_en'] as String?)?.trim() ?? '';
+    final titleUr = (raw['title_ur'] as String?)?.trim() ?? '';
+    final source = (raw['source'] as String?)?.trim() ?? '';
+    final url = (raw['url'] as String?)?.trim() ?? '';
+    if (titleEn.isEmpty || source.isEmpty || url.isEmpty) {
+      return null;
+    }
+    return {
+      'titleEn': titleEn,
+      'titleUr': titleUr.isNotEmpty ? titleUr : titleEn,
+      'source': source,
+      'url': url,
+    };
+  }
+
+  Future<void> _openLink(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_t('Invalid link', 'غلط لنک'))),
+      );
+      return;
+    }
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_t('Could not open link', 'لنک نہیں کھل سکا'))),
+      );
+    }
+  }
+
+  Future<void> _loadHeadlines() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final uri = Uri.parse('$backendBaseUrl/farmer-headlines');
+      final response = await http.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Headlines fetch failed (${response.statusCode})');
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final plant = ((data['plant_headlines'] as List<dynamic>?) ?? <dynamic>[])
+          .map(_headlineFromJson)
+          .whereType<Map<String, String>>()
+          .toList();
+      final animal = ((data['animal_headlines'] as List<dynamic>?) ?? <dynamic>[])
+          .map(_headlineFromJson)
+          .whereType<Map<String, String>>()
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _plantHeadlines = plant;
+        _animalHeadlines = animal;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = _t('Unable to load headlines right now.', 'ہیڈلائنز لوڈ نہیں ہو سکیں۔');
+        _loading = false;
+      });
+    }
+  }
+
+  Widget _headlineTile(Map<String, String> item) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text(_isUrdu ? (item['titleUr'] ?? '') : (item['titleEn'] ?? '')),
+        subtitle: Text(item['source'] ?? ''),
+        trailing: const Icon(Icons.open_in_new),
+        onTap: () => _openLink(item['url'] ?? ''),
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHeadlines();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_t('Farmer Headlines', 'کسان ہیڈلائنز')),
+        actions: [
+          IconButton(
+            onPressed: _loadHeadlines,
+            icon: const Icon(Icons.refresh),
+            tooltip: _t('Refresh', 'ریفریش'),
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFDFF3E3), Color(0xFFF4FAF4), Color(0xFFEAF7EC)],
+          ),
+        ),
+        child: _loading
+            ? Center(child: Text(_t('Loading headlines...', 'ہیڈلائنز لوڈ ہو رہی ہیں...')))
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                ),
+              )
+            : ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  Text(
+                    _t('Plant Research & News', 'پودوں کی تحقیق اور خبریں'),
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  ..._plantHeadlines.map(_headlineTile),
+                  const SizedBox(height: 10),
+                  Text(
+                    _t('Animal Research & News', 'جانوروں کی تحقیق اور خبریں'),
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  ..._animalHeadlines.map(_headlineTile),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class CommodityPricesScreen extends StatefulWidget {
+  const CommodityPricesScreen({super.key, required this.selectedLanguage});
+
+  final String selectedLanguage;
+
+  @override
+  State<CommodityPricesScreen> createState() => _CommodityPricesScreenState();
+}
+
+class _CommodityPricesScreenState extends State<CommodityPricesScreen> {
+  bool _loading = true;
+  String? _error;
+  String _updatedOn = '';
+  String _regionEn = '';
+  String _regionUr = '';
+  String _sourceNoteEn = '';
+  String _sourceNoteUr = '';
+  String _disclaimerEn = '';
+  String _disclaimerUr = '';
+  List<Map<String, dynamic>> _items = [];
+
+  bool get _isUrdu => widget.selectedLanguage == 'Urdu';
+  String _t(String en, String ur) => _isUrdu ? ur : en;
+
+  Map<String, dynamic>? _priceItemFromJson(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return {
+      'titleEn': (raw['title_en'] as String?)?.trim() ?? '',
+      'titleUr': (raw['title_ur'] as String?)?.trim() ?? '',
+      'unitEn': (raw['unit_en'] as String?)?.trim() ?? '',
+      'unitUr': (raw['unit_ur'] as String?)?.trim() ?? '',
+      'noteEn': (raw['note_en'] as String?)?.trim() ?? '',
+      'noteUr': (raw['note_ur'] as String?)?.trim() ?? '',
+      'price': (raw['price_pkr'] as num?)?.toDouble() ?? 0,
+    };
+  }
+
+  Future<void> _loadCommodityPrices() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final uri = Uri.parse('$backendBaseUrl/commodity-prices');
+      final response = await http.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Commodity prices fetch failed (${response.statusCode})');
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = ((data['items'] as List<dynamic>?) ?? <dynamic>[])
+          .map(_priceItemFromJson)
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _updatedOn = (data['updated_on'] as String?) ?? '';
+        _regionEn = (data['market_region_en'] as String?) ?? '';
+        _regionUr = (data['market_region_ur'] as String?) ?? '';
+        _sourceNoteEn = (data['source_note_en'] as String?) ?? '';
+        _sourceNoteUr = (data['source_note_ur'] as String?) ?? '';
+        _disclaimerEn = (data['disclaimer_en'] as String?) ?? '';
+        _disclaimerUr = (data['disclaimer_ur'] as String?) ?? '';
+        _items = items;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = _t('Unable to load commodity prices right now.', 'قیمتیں اس وقت لوڈ نہیں ہو سکیں۔');
+        _loading = false;
+      });
+    }
+  }
+
+  String _formatPkr(double value) {
+    return value.toStringAsFixed(0);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCommodityPrices();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_t('Commodity Prices', 'کموڈیٹی قیمتیں')),
+        actions: [
+          IconButton(
+            onPressed: _loadCommodityPrices,
+            icon: const Icon(Icons.refresh),
+            tooltip: _t('Refresh', 'ریفریش'),
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFDFF3E3), Color(0xFFF4FAF4), Color(0xFFEAF7EC)],
+          ),
+        ),
+        child: _loading
+            ? Center(child: Text(_t('Loading prices...', 'قیمتیں لوڈ ہو رہی ہیں...')))
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                ),
+              )
+            : ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isUrdu ? _regionUr : _regionEn,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _t('Updated: $_updatedOn', 'اپڈیٹ: $_updatedOn'),
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ..._items.map((item) {
+                    return Card(
+                      child: ListTile(
+                        title: Text(_isUrdu ? item['titleUr'] as String : item['titleEn'] as String),
+                        subtitle: Text(
+                          '${_isUrdu ? item['unitUr'] as String : item['unitEn'] as String}\n${_isUrdu ? item['noteUr'] as String : item['noteEn'] as String}',
+                        ),
+                        isThreeLine: true,
+                        trailing: Text(
+                          'PKR ${_formatPkr(item['price'] as double)}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1B5E20),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_isUrdu ? _sourceNoteUr : _sourceNoteEn),
+                          const SizedBox(height: 6),
+                          Text(
+                            _isUrdu ? _disclaimerUr : _disclaimerEn,
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
