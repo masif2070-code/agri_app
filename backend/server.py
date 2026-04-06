@@ -262,9 +262,9 @@ _COMMODITY_PRICES: list[dict[str, Any]] = [
         "title_ur": "سونا",
         "unit_en": "Per tola",
         "unit_ur": "فی تولہ",
-        "price_pkr": 338000,
-        "note_en": "Approx bullion market reference",
-        "note_ur": "تقریبی بلین مارکیٹ حوالہ",
+        "price_pkr": 385000,
+        "note_en": "Approx bullion market reference (updated)",
+        "note_ur": "تقریبی بلین مارکیٹ حوالہ (اپڈیٹ)",
     },
 ]
 
