@@ -262,11 +262,97 @@ _COMMODITY_PRICES: list[dict[str, Any]] = [
         "title_ur": "سونا",
         "unit_en": "Per tola",
         "unit_ur": "فی تولہ",
-        "price_pkr": 385000,
+        "price_pkr": 500000,
         "note_en": "Approx bullion market reference (updated)",
         "note_ur": "تقریبی بلین مارکیٹ حوالہ (اپڈیٹ)",
     },
 ]
+_COMMODITY_PRICES_CACHE: list[dict[str, Any]] = list(_COMMODITY_PRICES)
+_COMMODITY_PRICES_LAST_REFRESH: date | None = None
+
+
+def _safe_float(raw: Any, default: float = 0.0) -> float:
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
+def _stooq_close_usd(symbol: str) -> float | None:
+    url = f"https://stooq.com/q/l/?s={symbol}&i=d"
+    try:
+        response = requests.get(
+            url,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AgriAppBot/1.0)"},
+        )
+        response.raise_for_status()
+        line = response.text.strip().splitlines()[-1]
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 7:
+            return None
+        close_value = _safe_float(parts[6], default=0.0)
+        return close_value if close_value > 0 else None
+    except Exception:
+        return None
+
+
+def _usd_to_pkr_rate() -> float | None:
+    try:
+        response = requests.get(
+            "https://open.er-api.com/v6/latest/USD",
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AgriAppBot/1.0)"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        pkr = _safe_float((data.get("rates") or {}).get("PKR"), default=0.0)
+        return pkr if pkr > 0 else None
+    except Exception:
+        return None
+
+
+def _refresh_commodity_prices(force_refresh: bool = False) -> None:
+    global _COMMODITY_PRICES_LAST_REFRESH, _COMMODITY_PRICES_CACHE
+
+    today = date.today()
+    if not force_refresh and _COMMODITY_PRICES_LAST_REFRESH == today:
+        return
+
+    updated = [dict(item) for item in _COMMODITY_PRICES]
+
+    usd_to_pkr = _usd_to_pkr_rate()
+    gold_oz_usd = _stooq_close_usd("xauusd")
+    wheat_bushel_usd = _stooq_close_usd("zw.f")
+    rice_cwt_usd = _stooq_close_usd("zr.f")
+
+    if usd_to_pkr:
+        for item in updated:
+            key = item.get("commodity_key", "")
+            if key == "gold_tola" and gold_oz_usd:
+                # 1 tola = 11.6638 grams, 1 troy ounce = 31.1034768 grams.
+                tola_per_oz = 11.6638 / 31.1034768
+                item["price_pkr"] = round(gold_oz_usd * usd_to_pkr * tola_per_oz, 0)
+                item["note_en"] = "Live from XAUUSD spot proxy and USDPKR FX"
+                item["note_ur"] = "XAUUSD اور USDPKR سے لائیو تخمینہ"
+
+            if key == "wheat_40kg" and wheat_bushel_usd:
+                # Wheat futures are quoted in US cents per bushel on Stooq feed.
+                usd_per_bushel = wheat_bushel_usd / 100.0
+                bushel_per_40kg = 40.0 / 27.2155
+                item["price_pkr"] = round(usd_per_bushel * bushel_per_40kg * usd_to_pkr, 0)
+                item["note_en"] = "Live from CBOT wheat futures proxy converted to 40 kg"
+                item["note_ur"] = "CBOT گندم فیوچر سے 40 کلو میں لائیو تبدیلی"
+
+            if key == "rice_40kg" and rice_cwt_usd:
+                # Rough rice futures are quoted in USD per cwt (100 lb = 45.359 kg).
+                cwt_per_40kg = 40.0 / 45.359
+                item["price_pkr"] = round(rice_cwt_usd * cwt_per_40kg * usd_to_pkr, 0)
+                item["note_en"] = "Live from rough rice futures proxy converted to 40 kg"
+                item["note_ur"] = "رائس فیوچر سے 40 کلو میں لائیو تبدیلی"
+
+    _COMMODITY_PRICES_CACHE = updated
+    _COMMODITY_PRICES_LAST_REFRESH = today
 
 
 def _rss_items(url: str, source: str, limit: int = 4) -> list[dict[str, str]]:
@@ -1147,16 +1233,18 @@ def farmer_headlines(force_refresh: bool = False) -> FarmerHeadlinesResponse:
 
 
 @app.get("/commodity-prices", response_model=CommodityPricesResponse)
-def commodity_prices() -> CommodityPricesResponse:
+def commodity_prices(force_refresh: bool = False) -> CommodityPricesResponse:
+    _refresh_commodity_prices(force_refresh=force_refresh)
+
     return CommodityPricesResponse(
         market_region_en="Pakistan reference markets",
         market_region_ur="پاکستانی ریفرنس مارکیٹس",
         updated_on=date.today().isoformat(),
         source_note_en=(
-            "Prices are reference indicators built from mixed market observations and news snapshots."
+            "Gold/wheat/rice use live global market proxies with USDPKR conversion; fertilizer remains indicative."
         ),
         source_note_ur=(
-            "قیمتیں ریفرنس اشارے ہیں جو مختلف مارکیٹ مشاہدات اور خبروں کے خلاصوں سے بنائی گئی ہیں۔"
+            "سونا/گندم/چاول عالمی لائیو مارکیٹ پروکسی اور USDPKR تبدیلی سے ہیں؛ کھاد کی قیمت اشاریہ ہے۔"
         ),
         disclaimer_en=(
             "Use for planning only. Actual local dealer and mandi rates may differ by date, quality, and city."
@@ -1164,7 +1252,7 @@ def commodity_prices() -> CommodityPricesResponse:
         disclaimer_ur=(
             "صرف منصوبہ بندی کے لیے استعمال کریں۔ حقیقی مقامی ڈیلر اور منڈی ریٹس تاریخ، معیار اور شہر کے حساب سے مختلف ہو سکتے ہیں۔"
         ),
-        items=[CommodityPriceItem(**item) for item in _COMMODITY_PRICES],
+        items=[CommodityPriceItem(**item) for item in _COMMODITY_PRICES_CACHE],
     )
 
 
