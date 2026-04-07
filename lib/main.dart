@@ -32,6 +32,7 @@ class AgriApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Farmer Instructions - Pakistan',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.green,
         colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.green)
@@ -2635,6 +2636,64 @@ class _AnimalSectionScreenState extends State<AnimalSectionScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _t(
+                        'Get animal recommendations from symptoms and photos.',
+                        'علامات اور تصاویر سے جانور کے لیے سفارش حاصل کریں۔',
+                      ),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _t(
+                        'Upload a photo, describe the symptoms, and get first guidance before contacting a veterinarian.',
+                        'تصویر اپ لوڈ کریں، علامات لکھیں، اور ویٹرنری ڈاکٹر سے رابطے سے پہلے ابتدائی رہنمائی حاصل کریں۔',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AnimalPhotoRecommendationScreen(
+                                selectedLanguage: widget.selectedLanguage,
+                                initialAnimalType: _animalCategory == 'livestock'
+                                    ? 'Buffalo'
+                                    : _petCategory == 'cats'
+                                    ? 'Cat'
+                                    : _petCategory == 'birds'
+                                    ? 'Bird'
+                                    : 'Dog',
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.add_a_photo_outlined),
+                        label: Text(
+                          _t(
+                            'Get recommendation from animal photo',
+                            'جانور کی تصویر سے سفارش حاصل کریں',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             Text(
               _t(
                 'Choose animal category',
@@ -2691,6 +2750,396 @@ class _AnimalSectionScreenState extends State<AnimalSectionScreen> {
             if (_animalCategory == 'pets') ..._petsCards(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class AnimalPhotoRecommendationScreen extends StatefulWidget {
+  const AnimalPhotoRecommendationScreen({
+    super.key,
+    required this.selectedLanguage,
+    required this.initialAnimalType,
+  });
+
+  final String selectedLanguage;
+  final String initialAnimalType;
+
+  @override
+  State<AnimalPhotoRecommendationScreen> createState() =>
+      _AnimalPhotoRecommendationScreenState();
+}
+
+class _AnimalPhotoRecommendationScreenState
+    extends State<AnimalPhotoRecommendationScreen> {
+  final ImagePicker _picker = ImagePicker();
+  final TextEditingController _notesController = TextEditingController();
+
+  Uint8List? _selectedImageBytes;
+  String? _selectedImageName;
+  late String _animalType;
+  String _symptomFocus = 'general';
+  bool _submitting = false;
+  String? _error;
+  Map<String, dynamic>? _recommendation;
+
+  bool get _isUrdu => widget.selectedLanguage == 'Urdu';
+  String _t(String en, String ur) => _isUrdu ? ur : en;
+
+  @override
+  void initState() {
+    super.initState();
+    _animalType = widget.initialAnimalType;
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picked = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 2048,
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _selectedImageBytes = bytes;
+        _selectedImageName = picked.name;
+        _error = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = _t(
+          'Could not pick image. Please try again.',
+          'تصویر منتخب نہیں ہو سکی، دوبارہ کوشش کریں۔',
+        );
+      });
+    }
+  }
+
+  Future<void> _submitRecommendation() async {
+    if (_selectedImageBytes == null) {
+      setState(() {
+        _error = _t(
+          'Please select an animal photo first.',
+          'پہلے جانور کی تصویر منتخب کریں۔',
+        );
+      });
+      return;
+    }
+    if (_notesController.text.trim().length < 4) {
+      setState(() {
+        _error = _t(
+          'Please describe the symptoms in a little detail.',
+          'براہ کرم علامات تھوڑی تفصیل سے لکھیں۔',
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _recommendation = null;
+    });
+
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$backendBaseUrl/animal-photo-recommendation'),
+      );
+      request.fields['animal_type'] = _animalType;
+      request.fields['symptom_focus'] = _symptomFocus;
+      request.fields['notes'] = _notesController.text.trim();
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'photo',
+          _selectedImageBytes!,
+          filename: _selectedImageName ?? 'animal_photo.jpg',
+        ),
+      );
+
+      final streamed = await request.send();
+      final responseBody = await streamed.stream.bytesToString();
+      if (streamed.statusCode != 200) {
+        throw Exception(responseBody);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _recommendation = jsonDecode(responseBody) as Map<String, dynamic>;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = _t(
+          'Unable to get animal recommendation right now.',
+          'فی الحال جانور کی سفارش حاصل نہیں ہو سکی۔',
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
+    }
+  }
+
+  Color _urgencyColor(String urgency) {
+    switch (urgency) {
+      case 'urgent':
+        return Colors.red.shade700;
+      case 'same_day':
+        return Colors.orange.shade800;
+      default:
+        return Colors.green.shade700;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          _t('Animal Photo Recommendation', 'جانور کی تصویر سے سفارش'),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _t(
+                      'Upload a clear photo and write the symptoms you observed.',
+                      'واضح تصویر اپ لوڈ کریں اور دیکھی گئی علامات لکھیں۔',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _submitting
+                            ? null
+                            : () => _pickImage(ImageSource.gallery),
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: Text(_t('Pick from gallery', 'گیلری سے منتخب کریں')),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _submitting
+                            ? null
+                            : () => _pickImage(ImageSource.camera),
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        label: Text(_t('Use camera', 'کیمرہ استعمال کریں')),
+                      ),
+                    ],
+                  ),
+                  if (_selectedImageBytes != null) ...[
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.memory(
+                        _selectedImageBytes!,
+                        height: 190,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _selectedImageName ?? '',
+                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: _animalType,
+                    decoration: InputDecoration(
+                      labelText: _t('Animal type', 'جانور کی قسم'),
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'Buffalo', child: Text('Buffalo')),
+                      DropdownMenuItem(value: 'Cow', child: Text('Cow')),
+                      DropdownMenuItem(value: 'Goat', child: Text('Goat')),
+                      DropdownMenuItem(value: 'Sheep', child: Text('Sheep')),
+                      DropdownMenuItem(value: 'Camel', child: Text('Camel')),
+                      DropdownMenuItem(value: 'Dog', child: Text('Dog')),
+                      DropdownMenuItem(value: 'Cat', child: Text('Cat')),
+                      DropdownMenuItem(value: 'Bird', child: Text('Bird')),
+                    ],
+                    onChanged: _submitting
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => _animalType = value);
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: _symptomFocus,
+                    decoration: InputDecoration(
+                      labelText: _t('Main symptom area', 'اہم علامتی حصہ'),
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem(value: 'general', child: Text(_t('General', 'عمومی'))),
+                      DropdownMenuItem(value: 'skin', child: Text(_t('Skin / parasites', 'جلد / پیراسائٹ'))),
+                      DropdownMenuItem(value: 'digestion', child: Text(_t('Digestion / feeding', 'ہاضمہ / خوراک'))),
+                      DropdownMenuItem(value: 'breathing', child: Text(_t('Breathing', 'سانس'))),
+                      DropdownMenuItem(value: 'injury', child: Text(_t('Injury / swelling', 'چوٹ / سوجن'))),
+                      DropdownMenuItem(value: 'weakness', child: Text(_t('Weakness / fever', 'کمزوری / بخار'))),
+                    ],
+                    onChanged: _submitting
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => _symptomFocus = value);
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _notesController,
+                    minLines: 3,
+                    maxLines: 5,
+                    enabled: !_submitting,
+                    decoration: InputDecoration(
+                      labelText: _t('Symptoms observed', 'دیکھی گئی علامات'),
+                      hintText: _t(
+                        'Example: cough, nasal discharge, not eating, wound on leg, itching, diarrhea',
+                        'مثال: کھانسی، ناک سے پانی، چارہ نہ کھانا، ٹانگ پر زخم، خارش، دست',
+                      ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _submitting ? null : _submitRecommendation,
+                      icon: _submitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.medical_information_outlined),
+                      label: Text(
+                        _submitting
+                            ? _t('Getting recommendation...', 'سفارش حاصل کی جا رہی ہے...')
+                            : _t('Get recommendation', 'سفارش حاصل کریں'),
+                      ),
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Text(_error!, style: const TextStyle(color: Colors.red)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (_recommendation != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _recommendation!['possible_issue']?.toString() ?? '',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _urgencyColor(
+                              _recommendation!['urgency_level']?.toString() ?? 'monitor',
+                            ).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            (_recommendation!['urgency_level']?.toString() ?? 'monitor').toUpperCase(),
+                            style: TextStyle(
+                              color: _urgencyColor(
+                                _recommendation!['urgency_level']?.toString() ?? 'monitor',
+                              ),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _recommendation!['recommendation']?.toString() ?? '',
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _recommendation!['confidence_note']?.toString() ?? '',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 10),
+                    ...((_recommendation!['next_steps'] as List<dynamic>? ?? <dynamic>[])
+                        .map(
+                          (step) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('• '),
+                                Expanded(child: Text(step.toString())),
+                              ],
+                            ),
+                          ),
+                        )),
+                    const SizedBox(height: 8),
+                    Text(
+                      _recommendation!['disclaimer']?.toString() ?? '',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

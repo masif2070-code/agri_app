@@ -100,6 +100,19 @@ class CropPhotoCaseReviewRequest(BaseModel):
     reviewer_notes: str = ""
 
 
+class AnimalPhotoRecommendationResponse(BaseModel):
+    animal_type: str
+    symptom_focus: str
+    model_label: str
+    model_confidence: float
+    possible_issue: str
+    recommendation: str
+    urgency_level: str
+    confidence_note: str
+    next_steps: list[str]
+    disclaimer: str
+
+
 class FarmerHeadlineItem(BaseModel):
     title_en: str
     title_ur: str
@@ -1211,6 +1224,141 @@ def _build_photo_recommendation(
     )
 
 
+def _normalize_animal_symptom_focus(symptom_focus: str) -> str:
+    normalized = symptom_focus.strip().lower().replace("-", "_").replace(" ", "_")
+    allowed = {"skin", "digestion", "breathing", "injury", "weakness", "general"}
+    if normalized in allowed:
+        return normalized
+    return "general"
+
+
+def _build_animal_photo_recommendation(
+    animal_type: str,
+    symptom_focus: str,
+    notes: str,
+    image_signals: dict[str, float],
+) -> AnimalPhotoRecommendationResponse:
+    animal = animal_type.strip() or "Animal"
+    focus = _normalize_animal_symptom_focus(symptom_focus)
+    notes_lower = notes.lower()
+
+    yellow_ratio = image_signals.get("yellow_ratio", 0.0)
+    brown_ratio = image_signals.get("brown_ratio", 0.0)
+    dark_spot_ratio = image_signals.get("dark_spot_ratio", 0.0)
+    edge_intensity = image_signals.get("edge_intensity", 0.0)
+
+    skin_score = float(sum(token in notes_lower for token in [
+        "itch", "itching", "hair loss", "rash", "skin", "scab", "ticks", "mites", "mange", "wound",
+    ]))
+    digestion_score = float(sum(token in notes_lower for token in [
+        "diarrhea", "loose motion", "bloat", "vomit", "vomiting", "not eating", "appetite", "stomach",
+    ]))
+    breathing_score = float(sum(token in notes_lower for token in [
+        "cough", "breathing", "nose", "nasal", "sneeze", "panting", "respiratory", "wheeze",
+    ]))
+    injury_score = float(sum(token in notes_lower for token in [
+        "injury", "cut", "bleeding", "swelling", "limp", "fracture", "wound", "hurt",
+    ]))
+    weakness_score = float(sum(token in notes_lower for token in [
+        "weak", "fever", "dull", "down", "not standing", "dehydrated", "tired", "lethargic",
+    ]))
+
+    skin_score += (brown_ratio * 3.0) + (dark_spot_ratio * 4.0)
+    injury_score += (brown_ratio * 3.5) + (edge_intensity * 2.0)
+    weakness_score += yellow_ratio * 3.0
+
+    focus_bonus = {
+        "skin": "skin_score",
+        "digestion": "digestion_score",
+        "breathing": "breathing_score",
+        "injury": "injury_score",
+        "weakness": "weakness_score",
+    }
+    if focus_bonus.get(focus) == "skin_score":
+        skin_score += 1.5
+    elif focus_bonus.get(focus) == "digestion_score":
+        digestion_score += 1.5
+    elif focus_bonus.get(focus) == "breathing_score":
+        breathing_score += 1.5
+    elif focus_bonus.get(focus) == "injury_score":
+        injury_score += 1.5
+    elif focus_bonus.get(focus) == "weakness_score":
+        weakness_score += 1.5
+
+    scores = {
+        "skin_or_parasite_issue": skin_score,
+        "digestive_or_feed_issue": digestion_score,
+        "respiratory_issue": breathing_score,
+        "injury_or_wound_issue": injury_score,
+        "weakness_or_fever_pattern": weakness_score,
+    }
+    model_label = max(scores, key=scores.get)
+    winning_score = scores[model_label]
+    model_confidence = max(0.35, min(0.94, 0.4 + (winning_score * 0.08)))
+
+    issue_map = {
+        "skin_or_parasite_issue": "Possible skin infection, parasite, or external wound pattern",
+        "digestive_or_feed_issue": "Possible digestive upset, feed issue, or dehydration pattern",
+        "respiratory_issue": "Possible respiratory infection or breathing stress pattern",
+        "injury_or_wound_issue": "Possible injury, swelling, or wound pattern",
+        "weakness_or_fever_pattern": "Possible weakness, fever, or systemic illness pattern",
+    }
+    possible_issue = issue_map[model_label]
+
+    urgency_level = "monitor"
+    if model_label in {"respiratory_issue", "injury_or_wound_issue"}:
+        urgency_level = "urgent"
+    elif winning_score >= 4:
+        urgency_level = "same_day"
+
+    recommendation_map = {
+        "skin_or_parasite_issue": (
+            f"For {animal}, isolate if lesions are spreading, inspect skin under tail/neck/ears, and check for ticks, mange, lice, wounds, or pus. "
+            "Clean visible wounds with clean saline, avoid harsh chemicals, improve bedding hygiene, and consult a veterinarian for parasite or antibiotic treatment before using medicines."
+        ),
+        "digestive_or_feed_issue": (
+            f"For {animal}, review recent feed change, water intake, and dung/vomit pattern immediately. "
+            "Provide clean water, reduce spoiled or sudden feed changes, watch for bloat or severe diarrhea, and seek veterinary help quickly if dehydration, blood, or repeated vomiting is present."
+        ),
+        "respiratory_issue": (
+            f"For {animal}, move to a clean, well-ventilated area away from dust and crowding. "
+            "Check for nasal discharge, coughing, open-mouth breathing, or fever. Because breathing issues can worsen fast, arrange same-day veterinary examination and avoid self-medicating antibiotics without diagnosis."
+        ),
+        "injury_or_wound_issue": (
+            f"For {animal}, restrict movement, inspect for swelling, bleeding, broken skin, or pain response. "
+            "Apply first aid with clean dressing only, keep the area clean and dry, and contact a veterinarian urgently if the wound is deep, foul-smelling, or the animal cannot stand or bear weight."
+        ),
+        "weakness_or_fever_pattern": (
+            f"For {animal}, check temperature if possible, observe appetite, water intake, gum color, droppings, and standing posture. "
+            "Keep the animal hydrated, shaded, and separated for monitoring. If weakness is progressing or fever is suspected, arrange veterinary review the same day."
+        ),
+    }
+
+    next_steps = [
+        "Share 2-4 clear photos: whole animal, close symptom area, eyes/nose/mouth if affected, and dung/wound area if relevant.",
+        "Tell the vet the animal's age, breed/type, recent feed changes, vaccination/deworming status, and when symptoms started.",
+        "Seek urgent veterinary care if the animal has trouble breathing, cannot stand, has heavy bleeding, repeated seizures, or severe dehydration.",
+    ]
+
+    return AnimalPhotoRecommendationResponse(
+        animal_type=animal,
+        symptom_focus=focus,
+        model_label=model_label,
+        model_confidence=round(model_confidence, 3),
+        possible_issue=possible_issue,
+        recommendation=recommendation_map[model_label],
+        urgency_level=urgency_level,
+        confidence_note=(
+            "Preliminary guidance from your symptom description and photo signals. "
+            f"Yellow={yellow_ratio:.0%}, Brown={brown_ratio:.0%}, Dark spots={dark_spot_ratio:.0%}, Edge detail={edge_intensity:.0%}."
+        ),
+        next_steps=next_steps,
+        disclaimer=(
+            "This is not a veterinary diagnosis. Use it for first guidance only and confirm treatment with a qualified veterinarian."
+        ),
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -1356,6 +1504,38 @@ async def crop_photo_recommendation(
     }
 
     return response
+
+
+@app.post("/animal-photo-recommendation", response_model=AnimalPhotoRecommendationResponse)
+async def animal_photo_recommendation(
+    photo: UploadFile = File(...),
+    animal_type: str = Form(...),
+    symptom_focus: str = Form("general"),
+    notes: str = Form(""),
+) -> AnimalPhotoRecommendationResponse:
+    if not photo.filename:
+        raise HTTPException(status_code=400, detail="photo filename is missing")
+
+    content = await photo.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="photo is empty")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="photo exceeds 10 MB size limit")
+    if len(animal_type.strip()) < 2:
+        raise HTTPException(status_code=400, detail="animal_type is required")
+    if len(notes.strip()) < 4:
+        raise HTTPException(
+            status_code=400,
+            detail="notes should describe the symptoms or problem you observed",
+        )
+
+    image_signals = _analyze_crop_image_signals(content)
+    return _build_animal_photo_recommendation(
+        animal_type=animal_type,
+        symptom_focus=symptom_focus,
+        notes=notes.strip(),
+        image_signals=image_signals,
+    )
 
 
 @app.get("/crop-photo-cases/{case_id}", response_model=CropPhotoCaseStatusResponse)
