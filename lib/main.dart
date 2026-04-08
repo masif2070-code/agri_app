@@ -250,6 +250,24 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
   List<Map<String, String>> _animalHeadlines =
       List<Map<String, String>>.from(_fallbackAnimalHeadlines);
 
+  static const List<Map<String, String>> _officialGovSources = [
+    {
+      'labelEn': 'Ministry of National Food Security & Research',
+      'labelUr': 'قومی غذائی تحفظ و تحقیق کی وزارت',
+      'url': 'https://www.mnfsr.gov.pk/',
+    },
+    {
+      'labelEn': 'Punjab Agriculture Department',
+      'labelUr': 'محکمہ زراعت پنجاب',
+      'url': 'https://www.agripunjab.gov.pk/',
+    },
+    {
+      'labelEn': 'Punjab Livestock Department',
+      'labelUr': 'محکمہ لائیوسٹاک پنجاب',
+      'url': 'https://livestock.punjab.gov.pk/',
+    },
+  ];
+
   bool get _isUrdu => widget.selectedLanguage == 'Urdu';
   String _t(String en, String ur) => _isUrdu ? ur : en;
 
@@ -524,6 +542,52 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
         ),
       );
     }
+  }
+
+  Widget _govComplianceNoticeCompact() {
+    return Container(
+      margin: const EdgeInsets.only(top: 6, bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFE082)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _t(
+              'Disclaimer: This app is not affiliated with or endorsed by any government entity.',
+              'دستبرداری: یہ ایپ کسی بھی سرکاری ادارے سے منسلک یا اس کی منظور شدہ نہیں ہے۔',
+            ),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _t('Official sources (.gov):', 'سرکاری ذرائع (.gov):'),
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          ..._officialGovSources.map((src) {
+            return InkWell(
+              onTap: () => _openHeadlineLink(src['url'] ?? ''),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  '${_isUrdu ? (src['labelUr'] ?? '') : (src['labelEn'] ?? '')}: ${src['url']}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.blue.shade800,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   Widget _headlineTile(Map<String, String> item) {
@@ -1045,6 +1109,7 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
+                                      _govComplianceNoticeCompact(),
                                       const SizedBox(height: 4),
                                       Text(
                                         _t(
@@ -1331,6 +1396,24 @@ class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
   List<Map<String, String>> _plantHeadlines = [];
   List<Map<String, String>> _animalHeadlines = [];
 
+  static const List<Map<String, String>> _officialGovSources = [
+    {
+      'labelEn': 'Ministry of National Food Security & Research',
+      'labelUr': 'قومی غذائی تحفظ و تحقیق کی وزارت',
+      'url': 'https://www.mnfsr.gov.pk/',
+    },
+    {
+      'labelEn': 'Punjab Agriculture Department',
+      'labelUr': 'محکمہ زراعت پنجاب',
+      'url': 'https://www.agripunjab.gov.pk/',
+    },
+    {
+      'labelEn': 'Punjab Livestock Department',
+      'labelUr': 'محکمہ لائیوسٹاک پنجاب',
+      'url': 'https://livestock.punjab.gov.pk/',
+    },
+  ];
+
   bool get _isUrdu => widget.selectedLanguage == 'Urdu';
   String _t(String en, String ur) => _isUrdu ? ur : en;
 
@@ -1416,6 +1499,52 @@ class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
     );
   }
 
+  Widget _governmentDisclaimerAndSourcesCard() {
+    return Card(
+      color: const Color(0xFFFFF8E1),
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _t(
+                'Disclaimer: This app is not affiliated with, endorsed by, or an official app of any government entity.',
+                'دستبرداری: یہ ایپ کسی بھی سرکاری ادارے کی سرکاری ایپ نہیں ہے اور نہ ہی اس کی منظور شدہ ہے۔',
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _t(
+                'Government information reference sources (.gov):',
+                'سرکاری معلومات کے حوالہ جاتی ذرائع (.gov):',
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            ..._officialGovSources.map((src) {
+              return InkWell(
+                onTap: () => _openLink(src['url'] ?? ''),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(
+                    '${_isUrdu ? (src['labelUr'] ?? '') : (src['labelEn'] ?? '')}: ${src['url']}',
+                    style: TextStyle(
+                      color: Colors.blue.shade800,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1455,6 +1584,7 @@ class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
             : ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
+                  _governmentDisclaimerAndSourcesCard(),
                   Text(
                     _t('Plant Research & News', 'پودوں کی تحقیق اور خبریں'),
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
