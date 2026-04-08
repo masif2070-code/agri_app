@@ -544,50 +544,47 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
     }
   }
 
-  Widget _govComplianceNoticeCompact() {
-    return Container(
-      margin: const EdgeInsets.only(top: 6, bottom: 8),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFFE082)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _t(
-              'Disclaimer: This app is not affiliated with or endorsed by any government entity.',
-              'دستبرداری: یہ ایپ کسی بھی سرکاری ادارے سے منسلک یا اس کی منظور شدہ نہیں ہے۔',
-            ),
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _t('Official sources (.gov):', 'سرکاری ذرائع (.gov):'),
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          ..._officialGovSources.map((src) {
-            return InkWell(
-              onTap: () => _openHeadlineLink(src['url'] ?? ''),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text(
-                  '${_isUrdu ? (src['labelUr'] ?? '') : (src['labelEn'] ?? '')}: ${src['url']}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.blue.shade800,
-                    decoration: TextDecoration.underline,
-                  ),
+  Widget _disclaimerBanner() {
+    return GestureDetector(
+      onTap: () => _launchDisclaimerPage(),
+      child: Container(
+        margin: const EdgeInsets.only(top: 6, bottom: 8),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFFFE082)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, size: 18, color: Color(0xFFF57F17)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _t(
+                  'Tap for government disclaimer & sources',
+                  'حکومتی دستبرداری اور ذرائع کے لیے ٹیپ کریں',
                 ),
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-            );
-          }),
-        ],
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  void _launchDisclaimerPage() {
+    final disclaimerUrl = 'https://masif2070-code.github.io/agri_app/disclaimer.html';
+    launchUrl(Uri.parse(disclaimerUrl), mode: LaunchMode.externalApplication).catchError((_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t('Could not open disclaimer page', 'دستبرداری صفحہ کھول نہیں سکے')),
+        ),
+      );
+    });
   }
 
   Widget _headlineTile(Map<String, String> item) {
@@ -1109,7 +1106,7 @@ class _SectionChooserScreenState extends State<SectionChooserScreen> {
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
-                                      _govComplianceNoticeCompact(),
+                                      _disclaimerBanner(),
                                       const SizedBox(height: 4),
                                       Text(
                                         _t(
@@ -1451,6 +1448,52 @@ class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
     }
   }
 
+  Widget _disclaimerBanner() {
+    return GestureDetector(
+      onTap: () => _launchDisclaimerPage(),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFFFE082)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, size: 18, color: Color(0xFFF57F17)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _t(
+                  'Tap for government disclaimer & sources',
+                  'حکومتی دستبرداری اور ذرائع کے لیے ٹیپ کریں',
+                ),
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _launchDisclaimerPage() {
+    final disclaimerUrl = 'https://masif2070-code.github.io/agri_app/disclaimer.html';
+    launchUrl(Uri.parse(disclaimerUrl), mode: LaunchMode.externalApplication).catchError((_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_t('Could not open disclaimer page', 'دستبرداری صفحہ کھول نہیں سکے')),
+          ),
+        );
+      }
+    });
+  }
+
+
   Future<void> _loadHeadlines() async {
     setState(() {
       _loading = true;
@@ -1499,52 +1542,6 @@ class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
     );
   }
 
-  Widget _governmentDisclaimerAndSourcesCard() {
-    return Card(
-      color: const Color(0xFFFFF8E1),
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _t(
-                'Disclaimer: This app is not affiliated with, endorsed by, or an official app of any government entity.',
-                'دستبرداری: یہ ایپ کسی بھی سرکاری ادارے کی سرکاری ایپ نہیں ہے اور نہ ہی اس کی منظور شدہ ہے۔',
-              ),
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _t(
-                'Government information reference sources (.gov):',
-                'سرکاری معلومات کے حوالہ جاتی ذرائع (.gov):',
-              ),
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            ..._officialGovSources.map((src) {
-              return InkWell(
-                onTap: () => _openLink(src['url'] ?? ''),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Text(
-                    '${_isUrdu ? (src['labelUr'] ?? '') : (src['labelEn'] ?? '')}: ${src['url']}',
-                    style: TextStyle(
-                      color: Colors.blue.shade800,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -1584,7 +1581,8 @@ class _FarmerHeadlinesScreenState extends State<FarmerHeadlinesScreen> {
             : ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
-                  _governmentDisclaimerAndSourcesCard(),
+                  _disclaimerBanner(),
+                  const SizedBox(height: 8),
                   Text(
                     _t('Plant Research & News', 'پودوں کی تحقیق اور خبریں'),
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
