@@ -1,0 +1,62 @@
+<svg width="960" height="420" viewBox="0 0 960 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cardBg" x1="0" y1="0" x2="960" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAFCFB"/>
+      <stop offset="1" stop-color="#EEF6F0"/>
+    </linearGradient>
+    <filter id="shadow" x="80" y="70" width="780" height="260" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#102A1C" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10" fill="#1976D2"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10" fill="#2E7D32"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="420" rx="28" fill="url(#cardBg)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="110" y="95" width="740" height="220" rx="26" fill="#FFFFFF"/>
+  </g>
+
+  <g transform="translate(120 88)">
+    <path d="M138 166C138 127 167 97 216 89C251 84 317 81 379 86C437 91 474 111 508 141C527 137 543 134 560 136C579 138 591 148 593 162C595 176 589 187 575 193L545 205L539 235L500 235L492 210L282 210L270 236L226 236L225 210L177 210L170 236L126 236L126 203C110 198 101 188 98 173C94 152 110 139 138 166Z" fill="#A26E4E"/>
+    <path d="M505 141C528 116 553 102 585 99C608 97 628 105 636 118C646 135 640 154 622 160C600 168 571 165 547 160L505 141Z" fill="#A26E4E"/>
+    <path d="M603 104L631 86" stroke="#8B5E3C" stroke-width="7" stroke-linecap="round"/>
+    <path d="M560 122L579 94" stroke="#8B5E3C" stroke-width="7" stroke-linecap="round"/>
+    <ellipse cx="578" cy="132" rx="8" ry="8" fill="#2C241E"/>
+    <path d="M611 133C622 136 630 145 631 157C631 169 624 177 613 181" stroke="#8B5E3C" stroke-width="6" stroke-linecap="round"/>
+    <path d="M129 124C110 114 95 103 88 88C84 79 84 69 90 62" stroke="#8B5E3C" stroke-width="7" stroke-linecap="round"/>
+
+    <path d="M184 205L181 303" stroke="#7C533A" stroke-width="10" stroke-linecap="round"/>
+    <path d="M245 205L242 303" stroke="#7C533A" stroke-width="10" stroke-linecap="round"/>
+    <path d="M432 205L429 303" stroke="#7C533A" stroke-width="10" stroke-linecap="round"/>
+    <path d="M493 205L490 303" stroke="#7C533A" stroke-width="10" stroke-linecap="round"/>
+
+    <path d="M170 304L197 304" stroke="#5D4037" stroke-width="8" stroke-linecap="round"/>
+    <path d="M229 304L256 304" stroke="#5D4037" stroke-width="8" stroke-linecap="round"/>
+    <path d="M416 304L443 304" stroke="#5D4037" stroke-width="8" stroke-linecap="round"/>
+    <path d="M477 304L504 304" stroke="#5D4037" stroke-width="8" stroke-linecap="round"/>
+
+    <ellipse cx="233" cy="163" rx="52" ry="83" fill="none" stroke="#1976D2" stroke-width="8"/>
+    <line x1="164" y1="52" x2="493" y2="52" stroke="#2E7D32" stroke-width="8" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+
+    <circle cx="188" cy="52" r="5" fill="#2E7D32"/>
+    <circle cx="489" cy="52" r="5" fill="#2E7D32"/>
+
+    <text x="112" y="30" fill="#2E7D32" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="24">BODY LENGTH</text>
+    <text x="32" y="84" fill="#1976D2" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="24">HEART GIRTH</text>
+
+    <path d="M104 89C84 97 64 113 57 137" stroke="#1976D2" stroke-width="5" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+    <path d="M347 38C353 27 365 18 380 16" stroke="#2E7D32" stroke-width="5" stroke-linecap="round" marker-end="url(#arrowGreen)"/>
+  </g>
+
+  <g font-family="Arial, Helvetica, sans-serif" fill="#37474F">
+    <text x="70" y="375" font-size="26" font-weight="700">Heart girth:</text>
+    <text x="230" y="375" font-size="24">wrap tape around the chest just behind the front legs.</text>
+    <text x="70" y="405" font-size="26" font-weight="700">Body length:</text>
+    <text x="230" y="405" font-size="24">measure from shoulder point to the pin bone near the rump.</text>
+  </g>
+</svg>

@@ -1,0 +1,55 @@
+<svg width="960" height="420" viewBox="0 0 960 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="960" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCFDFC"/>
+      <stop offset="1" stop-color="#EDF4EF"/>
+    </linearGradient>
+    <filter id="shadow" x="72" y="70" width="816" height="274" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#173322" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10" fill="#1976D2"/></marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10" fill="#2E7D32"/></marker>
+  </defs>
+  <rect width="960" height="420" rx="28" fill="url(#bg)"/>
+  <g filter="url(#shadow)"><rect x="88" y="84" width="784" height="248" rx="24" fill="#FFFFFF"/></g>
+  <text x="106" y="60" fill="#334E41" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700">CATTLE MEASUREMENT GUIDE</text>
+  <g transform="translate(102 92)">
+    <path d="M146 196L144 304" stroke="#6B4B37" stroke-width="6" stroke-linecap="round"/>
+    <path d="M236 197L233 304" stroke="#6B4B37" stroke-width="6" stroke-linecap="round"/>
+    <path d="M491 198L488 304" stroke="#6B4B37" stroke-width="6" stroke-linecap="round"/>
+    <path d="M581 197L578 304" stroke="#6B4B37" stroke-width="6" stroke-linecap="round"/>
+    <path d="M136 304H160" stroke="#4A3226" stroke-width="4" stroke-linecap="round"/>
+    <path d="M225 304H249" stroke="#4A3226" stroke-width="4" stroke-linecap="round"/>
+    <path d="M480 304H504" stroke="#4A3226" stroke-width="4" stroke-linecap="round"/>
+    <path d="M570 304H594" stroke="#4A3226" stroke-width="4" stroke-linecap="round"/>
+    <path d="M120 176C128 146 148 125 186 111C246 89 355 87 490 95C572 100 631 114 672 139C687 134 702 132 721 132C746 132 767 141 778 157C789 173 787 189 772 198C754 208 724 210 688 207L653 208L631 214L602 221H144C128 216 116 197 120 176Z" fill="#FCFCFA" stroke="#6B4B37" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="M669 139C685 118 705 103 730 97C754 91 777 94 793 104C809 114 816 128 813 142C810 157 798 168 780 176C760 184 731 188 693 185L669 139Z" fill="#FCFCFA" stroke="#6B4B37" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="M709 118C722 98 738 84 758 78" stroke="#6B4B37" stroke-width="4.2" stroke-linecap="round"/>
+    <path d="M740 119C754 101 771 92 789 89" stroke="#6B4B37" stroke-width="4.2" stroke-linecap="round"/>
+    <path d="M149 154C136 141 127 127 123 110" stroke="#6B4B37" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M238 138C284 127 381 126 518 131C562 132 600 136 632 143" stroke="#9F7A60" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+    <path d="M188 111C200 145 200 177 188 220" stroke="#6B4B37" stroke-width="1.6" opacity="0.8"/>
+    <path d="M248 108C259 143 260 178 252 221" stroke="#6B4B37" stroke-width="1.6" opacity="0.8"/>
+    <path d="M495 101C500 141 501 179 495 221" stroke="#6B4B37" stroke-width="1.6" opacity="0.8"/>
+    <path d="M568 105C571 141 572 177 568 216" stroke="#6B4B37" stroke-width="1.6" opacity="0.8"/>
+    <ellipse cx="736" cy="135" rx="5" ry="5" fill="#201713"/>
+    <ellipse cx="515" cy="166" rx="22" ry="70" fill="none" stroke="#1976D2" stroke-width="5" stroke-dasharray="9 6"/>
+    <line x1="145" y1="50" x2="612" y2="50" stroke="#2E7D32" stroke-width="6" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+    <text x="326" y="32" fill="#2E7D32" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">BODY LENGTH</text>
+    <text x="16" y="96" fill="#1976D2" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">HEART GIRTH</text>
+    <path d="M95 102C162 95 307 99 465 133" stroke="#1976D2" stroke-width="4" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+    <text x="184" y="238" fill="#6B4B37" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700">SHOULDER / کندھا</text>
+    <path d="M246 228L232 206" stroke="#6B4B37" stroke-width="2" stroke-linecap="round"/>
+    <text x="504" y="254" fill="#1976D2" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700">GIRTH / چھاتی گھیر</text>
+    <path d="M552 244L528 216" stroke="#1976D2" stroke-width="2" stroke-linecap="round"/>
+    <text x="566" y="244" fill="#6B4B37" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700">PIN BONE / کولہے کی ہڈی</text>
+    <path d="M616 234L598 214" stroke="#6B4B37" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#43584D">
+    <text x="70" y="372" font-size="22" font-weight="700" fill="#334E41">Heart girth / چھاتی گھیر:</text>
+    <text x="334" y="372" font-size="18">wrap tape around the chest just behind the front legs.</text>
+    <text x="334" y="392" font-size="18">سامنے والی ٹانگوں کے پیچھے چھاتی کے گرد ٹیپ لپیٹیں۔</text>
+    <text x="70" y="412" font-size="22" font-weight="700" fill="#334E41">Body length / جسم کی لمبائی:</text>
+    <text x="334" y="412" font-size="18">measure from shoulder point to the pin bone near the rump.</text>
+  </g>
+</svg>
